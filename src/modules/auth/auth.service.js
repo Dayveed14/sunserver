@@ -7,8 +7,10 @@ const PURPOSE = 'verify_email';
 // Compared against when an email doesn't exist, so response time doesn't reveal which emails are registered.
 const DUMMY_HASH = bcrypt.hashSync('sunledger-timing-equaliser', 10);
 
-export function createAuthService({ users, otps, mailer, config, now = () => new Date() }) {
+export function createAuthService({ users, otps, resets, mailer, config, now = () => new Date() }) {
   const { otp: otpCfg, login: loginCfg } = config;
+  const resetCfg = config.reset ?? { ttlMinutes: 60, cooldownSeconds: 60, maxPerHour: 5 };
+  const sha256 = (v) => crypto.createHash('sha256').update(v).digest('hex');
 
   const hashCode = (code) => crypto.createHmac('sha256', config.otpSecret).update(code).digest('hex');
   const hashesMatch = (a, b) => {
@@ -164,5 +166,49 @@ export function createAuthService({ users, otps, mailer, config, now = () => new
     return toPublicUser(user);
   }
 
-  return { register, verifyEmail, resendOtp, login };
+  // Always answers the same way, so nobody can use this form to find out which emails have accounts.
+  async function forgotPassword({ email }) {
+    const t = now();
+    const user = await users.findByEmail(email);
+    if (!user || !user.email_verified_at || user.status !== 'active') return { ok: true };
+
+    const last = await resets.latestFor(user.id);
+    if (last && new Date(last.created_at).getTime() + resetCfg.cooldownSeconds * 1000 > t.getTime()) return { ok: true };
+    if ((await resets.countSince(user.id, new Date(t.getTime() - 60 * 60 * 1000))) >= resetCfg.maxPerHour) return { ok: true };
+
+    const token = crypto.randomBytes(32).toString('base64url');
+    const id = await resets.create({
+      userId: user.id,
+      tokenHash: sha256(token),
+      expiresAt: new Date(t.getTime() + resetCfg.ttlMinutes * 60 * 1000),
+      createdAt: t,
+    });
+    try {
+      await mailer.sendPasswordReset({
+        to: user.email,
+        name: user.full_name,
+        link: config.resetLink(token),
+        ttlMinutes: resetCfg.ttlMinutes,
+      });
+    } catch (err) {
+      await resets.remove(id);
+      console.error('[auth] password reset email failed:', err.message);
+    }
+    return { ok: true };
+  }
+
+  async function resetPassword({ token, password }) {
+    const t = now();
+    const invalid = () => new HttpError(400, 'INVALID_RESET', 'This reset link is invalid or has expired. Request a new one.');
+    const row = await resets.findValid(sha256(token), t);
+    if (!row) throw invalid();
+    const user = await users.findById(row.userId);
+    if (!user || user.status !== 'active') throw invalid();
+
+    await users.setPassword(user.id, await bcrypt.hash(password, config.bcryptRounds));
+    await resets.consumeAllFor(user.id, t); // this link and any older ones are now dead
+    return { ok: true };
+  }
+
+  return { register, verifyEmail, resendOtp, login, forgotPassword, resetPassword };
 }

@@ -81,4 +81,32 @@ export const usersRepo = {
   async bumpTokenVersion(id) {
     await query('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [id]);
   },
+
+  // New password: every existing session stops working and any lockout is cleared.
+  async setPassword(id, passwordHash) {
+    await query(
+      `UPDATE users SET password_hash = ?, token_version = token_version + 1,
+       failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
+      [passwordHash, id]
+    );
+  },
+
+  async setStatus(id, status) {
+    await query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
+  },
+
+  async listForAdmin({ q, role, limit = 100 }) {
+    const where = [];
+    const params = [];
+    if (role) { where.push('u.role = ?'); params.push(role); }
+    if (q) { where.push('(u.email LIKE ? OR u.full_name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+    const rows = await query(
+      `${SELECT_USER} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY u.id DESC LIMIT ${Number(limit) | 0}`,
+      params
+    );
+    return rows.map((r) => ({
+      id: Number(r.id), email: r.email, fullName: r.full_name, role: r.role, status: r.status,
+      companyName: r.company_name ?? null, emailVerified: Boolean(r.email_verified_at),
+    }));
+  },
 };

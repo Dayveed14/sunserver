@@ -3,6 +3,7 @@ import { env } from '../../config/env.js';
 import { createMailer } from '../../lib/mailer.js';
 import { usersRepo } from '../../repos/users.js';
 import { otpsRepo } from '../../repos/otps.js';
+import { passwordResetsRepo } from '../../repos/passwordResets.js';
 import { createAuthService } from './auth.service.js';
 
 const mailer = createMailer({ apiKey: env.resend.apiKey, from: env.resend.from, isProd: env.isProd });
@@ -14,6 +15,7 @@ if (!env.resend.apiKey) {
 export const authService = createAuthService({
   users: usersRepo,
   otps: otpsRepo,
+  resets: passwordResetsRepo,
   mailer,
   config: {
     bcryptRounds: env.bcryptRounds,
@@ -21,5 +23,7 @@ export const authService = createAuthService({
     otpSecret: crypto.createHmac('sha256', env.jwtSecret).update('sunledger-otp').digest('hex'),
     otp: env.otp,
     login: env.login,
+    reset: env.reset,
+    resetLink: (token) => `${env.clientOrigin.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`,
   },
 });

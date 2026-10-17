@@ -44,6 +44,36 @@ export function createMemoryRepos() {
     async bumpTokenVersion(id) {
       users.get(id).token_version += 1;
     },
+    async setPassword(id, hash) {
+      Object.assign(users.get(id), { password_hash: hash, failed_login_attempts: 0, locked_until: null });
+      users.get(id).token_version += 1;
+    },
+  };
+
+  const resetRows = [];
+  const resetsRepo = {
+    async create({ userId, tokenHash, expiresAt, createdAt }) {
+      const id = resetRows.length + 1;
+      resetRows.push({ id, user_id: userId, token_hash: tokenHash, expires_at: expiresAt, used_at: null, created_at: createdAt });
+      return id;
+    },
+    async findValid(tokenHash, at) {
+      const r = resetRows.find((x) => x.token_hash === tokenHash && !x.used_at && x.expires_at > at);
+      return r ? { id: r.id, userId: r.user_id } : null;
+    },
+    async latestFor(userId) {
+      return copy([...resetRows].reverse().find((x) => x.user_id === userId));
+    },
+    async countSince(userId, since) {
+      return resetRows.filter((x) => x.user_id === userId && x.created_at >= since).length;
+    },
+    async consumeAllFor(userId, at) {
+      for (const r of resetRows) if (r.user_id === userId && !r.used_at) r.used_at = at;
+    },
+    async remove(id) {
+      const i = resetRows.findIndex((x) => x.id === id);
+      if (i >= 0) resetRows.splice(i, 1);
+    },
   };
 
   const otpsRepo = {
@@ -76,5 +106,5 @@ export function createMemoryRepos() {
     },
   };
 
-  return { usersRepo, otpsRepo, users, otpRows };
+  return { usersRepo, otpsRepo, resetsRepo, users, otpRows, resetRows };
 }

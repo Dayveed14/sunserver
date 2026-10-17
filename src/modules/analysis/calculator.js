@@ -1,4 +1,5 @@
 import { HttpError } from '../../lib/httpError.js';
+import { EAAS_RULES, computeEaas } from '../marketplace/eaas.js';
 import { HOURS_BY_KEY } from './catalog/hours.js';
 
 const BAND_ORDER = ['A', 'B', 'C', 'D', 'E'];
@@ -188,7 +189,22 @@ export function estimate(input, { catalogs, assumptions: A }) {
   const leaseDeposit = systemCost * F.lease.depositPct;
   const leaseMonthly = (systemCost * (1 + F.lease.markupPct) - leaseDeposit) / F.lease.termMonths;
   const rentMonthly = systemCost * F.rent.monthlyPct;
-  const eaasMonthly = (systemCost * (1 + F.eaas.markupPct)) / F.eaas.termMonths + (systemCost * F.eaas.omPctPerYear) / 12;
+  // Energy as a service uses the same pricing rules vendors use: annuity on the equipment at a target return,
+  // plus running costs, a risk allowance and Sunledger's fee. See marketplace/eaas.js.
+  const eaasQuote = computeEaas({
+    components: [
+      { category: 'panel', cost: panelCost },
+      { category: 'inverter', cost: inverterCost },
+      { category: 'battery', cost: batteryCost, batteryType: 'lithium' },
+    ],
+    installationCost: installCost,
+    installationMode: F.eaas.installationMode,
+    tenorMonths: F.eaas.termMonths,
+    annualReturn: EAAS_RULES.annualReturn.default,
+    segment: input.segment,
+    kwhPerMonth,
+  });
+  const eaasMonthly = eaasQuote.monthly;
 
   const options = {
     buy: {
@@ -214,7 +230,7 @@ export function estimate(input, { catalogs, assumptions: A }) {
     },
     eaas: {
       key: 'eaas',
-      upfront: 0,
+      upfront: eaasQuote.installation.payAtInstall,
       monthly: r0(eaasMonthly),
       termMonths: F.eaas.termMonths,
       perKwh: r0(eaasMonthly / kwhPerMonth),
@@ -299,7 +315,7 @@ export function estimate(input, { catalogs, assumptions: A }) {
       performanceRatio: P.performanceRatio,
       lease: F.lease,
       rent: F.rent,
-      eaas: F.eaas,
+      eaas: { ...F.eaas, annualReturn: EAAS_RULES.annualReturn.default, platformFeePct: EAAS_RULES.platformFeePct },
       usageSpread: 'Electricity use is assumed to be spread evenly through the day.',
     },
   };

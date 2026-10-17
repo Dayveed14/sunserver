@@ -14,3 +14,5 @@ const limiter = (windowMinutes, limit, message) =>
 export const authLimiter = limiter(15, 30, 'Too many attempts. Please wait a few minutes and try again.');
 export const otpLimiter = limiter(15, 20, 'Too many code attempts. Please wait a few minutes and try again.');
 export const estimateLimiter = limiter(15, 120, 'Too many assessments from this connection. Please try again shortly.');
+export const shopLimiter = limiter(15, 300, 'Too many requests. Please try again shortly.');
+export const requestLimiter = limiter(15, 30, 'Too many requests sent. Please try again later.');

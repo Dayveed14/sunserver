@@ -6,7 +6,7 @@ import { authLimiter, otpLimiter } from '../../middleware/rateLimits.js';
 import { validate } from '../../middleware/validate.js';
 import { usersRepo } from '../../repos/users.js';
 import { authService } from './index.js';
-import { loginSchema, registerSchema, resendSchema, verifySchema } from './auth.schemas.js';
+import { forgotSchema, loginSchema, registerSchema, resendSchema, resetSchema, verifySchema } from './auth.schemas.js';
 
 const router = Router();
 
@@ -55,6 +55,20 @@ router.post(
     setSessionCookie(res, full);
     res.json({ user });
   })
+);
+
+router.post(
+  '/forgot-password',
+  otpLimiter,
+  validate(forgotSchema),
+  asyncHandler(async (req, res) => res.json(await authService.forgotPassword(req.valid)))
+);
+
+router.post(
+  '/reset-password',
+  otpLimiter,
+  validate(resetSchema),
+  asyncHandler(async (req, res) => res.json(await authService.resetPassword(req.valid)))
 );
 
 router.post('/logout', (req, res) => {

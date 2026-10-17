@@ -43,3 +43,10 @@ export const loginSchema = z.object({
   email,
   password: z.string().min(1, 'Enter your password').max(200),
 });
+
+export const forgotSchema = z.object({ email });
+
+export const resetSchema = z.object({
+  token: z.string().trim().min(20, 'This reset link is not valid.').max(100, 'This reset link is not valid.'),
+  password,
+});
