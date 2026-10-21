@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { createAuthService } from '../src/modules/auth/auth.service.js';
-import { createMemoryRepos } from '../test-support/memoryRepos.js';
+import { createAuthService } from '../src/services/auth.service.js';
+import { createMemoryModels } from '../test-support/memoryModels.js';
 
 const MIN = 60 * 1000;
 const config = {
@@ -12,14 +12,14 @@ const config = {
 };
 const signup = { email: 'ada@example.com', password: 'Sunny2026x', role: 'individual', fullName: 'Ada Obi' };
 
-let svc, repos, mailbox, clock, failMail;
+let svc, models, mailbox, clock, failMail;
 const advance = (ms) => { clock = new Date(clock.getTime() + ms); };
 const lastCode = () => mailbox.at(-1).code;
 const wrongCode = () => (lastCode() === '000000' ? '111111' : '000000');
 const code = async (promise) => promise.then(() => null, (e) => e.code);
 
 beforeEach(() => {
-  repos = createMemoryRepos();
+  models = createMemoryModels();
   mailbox = [];
   clock = new Date('2026-10-16T12:00:00Z');
   failMail = false;
@@ -29,7 +29,7 @@ beforeEach(() => {
       mailbox.push(msg);
     },
   };
-  svc = createAuthService({ users: repos.usersRepo, otps: repos.otpsRepo, mailer, config, now: () => clock });
+  svc = createAuthService({ users: models.usersModel, otps: models.otpsModel, mailer, config, now: () => clock });
 });
 
 describe('registration + OTP', () => {
@@ -37,15 +37,15 @@ describe('registration + OTP', () => {
     await svc.register(signup);
     assert.equal(mailbox.length, 1);
     assert.match(lastCode(), /^\d{6}$/);
-    const row = repos.otpRows[0];
+    const row = models.otpRows[0];
     assert.equal(row.code_hash.length, 64);
     assert.ok(!row.code_hash.includes(lastCode()));
-    assert.equal((await repos.usersRepo.findByEmailRole(signup.email, 'individual')).email_verified_at, null);
+    assert.equal((await models.usersModel.findByEmailRole(signup.email, 'individual')).email_verified_at, null);
   });
 
   it('never stores the password in plain text', async () => {
     await svc.register(signup);
-    const user = await repos.usersRepo.findByEmailRole(signup.email, 'individual');
+    const user = await models.usersModel.findByEmailRole(signup.email, 'individual');
     assert.notEqual(user.password_hash, signup.password);
     assert.match(user.password_hash, /^\$2[aby]\$/);
   });
@@ -96,7 +96,7 @@ describe('registration + OTP', () => {
   it('does not count a code that failed to send', async () => {
     failMail = true;
     assert.equal(await code(svc.register(signup)), 'MAIL_FAILED');
-    assert.equal(repos.otpRows.length, 0);
+    assert.equal(models.otpRows.length, 0);
     failMail = false;
     await svc.register(signup); // no cooldown penalty
     assert.equal(mailbox.length, 1);
@@ -106,7 +106,7 @@ describe('registration + OTP', () => {
     await svc.register(signup);
     advance(61 * 1000);
     await svc.register({ ...signup, fullName: 'Ada O.' });
-    const user = await repos.usersRepo.findByEmailRole(signup.email, 'individual');
+    const user = await models.usersModel.findByEmailRole(signup.email, 'individual');
     assert.equal(user.full_name, 'Ada O.');
     await svc.verifyEmail({ email: signup.email, code: lastCode() });
     assert.equal(await code(svc.register(signup)), 'EMAIL_TAKEN');
@@ -163,7 +163,7 @@ describe('login (no OTP)', () => {
 
   it('blocks suspended accounts', async () => {
     await verified();
-    (await repos.users.get(1)).status = 'suspended';
+    (await models.users.get(1)).status = 'suspended';
     assert.equal(await code(svc.login({ email: signup.email, password: signup.password })), 'ACCOUNT_SUSPENDED');
   });
 });

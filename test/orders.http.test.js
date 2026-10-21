@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { after, before, describe, it } from 'node:test';
 import express from 'express';
-import { createWebhookHandler } from '../src/modules/orders/orders.http.js';
+import { createWebhookHandler } from '../src/controllers/webhook.controller.js';
 import { createHarness } from '../test-support/ordersHarness.js';
 
 const sign = (body, secret) => crypto.createHmac('sha512', secret).update(body).digest('hex');
@@ -36,7 +36,7 @@ describe('Paystack webhook endpoint', () => {
     assert.equal((await post(body, 'deadbeef')).status, 401);
     assert.equal((await post(body, sign(body, 'some_other_key'))).status, 401);
     assert.equal((await post(body.replace('success', 'sucess'), sign(body, SECRET))).status, 401);
-    assert.equal((await h.ordersRepo.findByRef(co.order.ref)).status, 'pending_payment');
+    assert.equal((await h.ordersModel.findByRef(co.order.ref)).status, 'pending_payment');
   });
 
   it('accepts a correctly signed event, settles it, and answers 200 to a replay', async () => {
@@ -45,8 +45,8 @@ describe('Paystack webhook endpoint', () => {
     const sig = sign(body, SECRET);
     const results = await Promise.all(Array.from({ length: 8 }, () => post(body, sig)));
     assert.ok(results.every((r) => r.status === 200));
-    assert.equal((await h.ordersRepo.findByRef(co.order.ref)).status, 'paid');
-    assert.equal(h.ordersRepo._events.filter((e) => e.orderId === (h.ordersRepo._orders.find((o) => o.publicRef === co.order.ref).id) && e.type === 'payment_confirmed').length, 1);
+    assert.equal((await h.ordersModel.findByRef(co.order.ref)).status, 'paid');
+    assert.equal(h.ordersModel._events.filter((e) => e.orderId === (h.ordersModel._orders.find((o) => o.publicRef === co.order.ref).id) && e.type === 'payment_confirmed').length, 1);
   });
 
   it('answers 200 to signed events it does not care about, and 400 to signed garbage', async () => {

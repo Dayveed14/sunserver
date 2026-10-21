@@ -8,7 +8,7 @@ async function paidOrder(h, items = [{ kind: 'product', id: 1, qty: 1 }], u = us
   const co = await h.service.checkout(u, { items, destination: h.dest, idempotencyKey: h.key() });
   const ref = co.payment.reference;
   const r = await h.service.handlePaymentResult({ reference: ref, status: 'success', amountKobo: co.order.total * 100, currency: 'NGN' });
-  return { co, ref, r, order: await h.ordersRepo.findByRef(co.order.ref) };
+  return { co, ref, r, order: await h.ordersModel.findByRef(co.order.ref) };
 }
 
 describe('pricing a cart', () => {
@@ -53,8 +53,8 @@ describe('checkout idempotency', () => {
     const b = await h.service.checkout(user(), { items, destination: h.dest, idempotencyKey: key });
     assert.equal(a.order.ref, b.order.ref);
     assert.equal(a.payment.reference, b.payment.reference);
-    assert.equal(h.ordersRepo._orders.length, 1);
-    assert.equal(h.ordersRepo._payments.length, 1);
+    assert.equal(h.ordersModel._orders.length, 1);
+    assert.equal(h.ordersModel._payments.length, 1);
   });
   it('twenty simultaneous clicks make one order', async () => {
     const h = createHarness();
@@ -62,7 +62,7 @@ describe('checkout idempotency', () => {
     const items = [{ kind: 'product', id: 1, qty: 1 }];
     const all = await Promise.all(Array.from({ length: 20 }, () => h.service.checkout(user(), { items, destination: h.dest, idempotencyKey: key })));
     assert.equal(new Set(all.map((x) => x.order.ref)).size, 1);
-    assert.equal(h.ordersRepo._orders.length, 1);
+    assert.equal(h.ordersModel._orders.length, 1);
   });
   it('simultaneous checkouts share one payment link, even for different keys on the same order', async () => {
     const h = createHarness();
@@ -71,7 +71,7 @@ describe('checkout idempotency', () => {
     const all = await Promise.all(Array.from({ length: 15 }, () => h.service.checkout(user(), { items, destination: h.dest, idempotencyKey: key })));
     assert.equal(new Set(all.map((x) => x.payment.reference)).size, 1);
     assert.equal(new Set(all.map((x) => x.payment.authorizationUrl)).size, 1);
-    assert.equal(h.ordersRepo._payments.length, 1);
+    assert.equal(h.ordersModel._payments.length, 1);
   });
   it('reusing a key for a different cart is rejected', async () => {
     const h = createHarness();
@@ -98,7 +98,7 @@ describe('payment security', () => {
     const h = createHarness();
     const co = await h.service.checkout(user(), { items: [{ kind: 'product', id: 1, qty: 1 }], destination: h.dest, idempotencyKey: h.key() });
     assert.equal((await h.service.vendorOrders(10)).orders.length, 0);
-    const o = await h.ordersRepo.findByRef(co.order.ref);
+    const o = await h.ordersModel.findByRef(co.order.ref);
     await assert.rejects(h.service.vendorAct({ id: 10 }, o.vendorOrders[0].id, 'accept'), (e) => e.status === 404);
   });
   it('settles once and tells everyone', async () => {
@@ -118,7 +118,7 @@ describe('payment security', () => {
     const again = await h.service.handlePaymentResult({ reference: ref, status: 'success', amountKobo: co.order.total * 100, currency: 'NGN' });
     assert.equal(again.replay, true);
     assert.equal(h.sent.length, emails);
-    assert.equal(h.ordersRepo._events.filter((e) => e.type === 'payment_confirmed').length, 1);
+    assert.equal(h.ordersModel._events.filter((e) => e.type === 'payment_confirmed').length, 1);
   });
   it('a webhook racing the return page and itself settles exactly once', async () => {
     const h = createHarness();
@@ -131,7 +131,7 @@ describe('payment security', () => {
       ...Array.from({ length: 10 }, () => h.service.verifyAndSettle(user(), ref)),
     ]);
     assert.ok(results.length === 20);
-    assert.equal(h.ordersRepo._events.filter((e) => e.type === 'payment_confirmed').length, 1);
+    assert.equal(h.ordersModel._events.filter((e) => e.type === 'payment_confirmed').length, 1);
     assert.equal(h.sent.filter((m) => /Payment confirmed/.test(m.subject)).length, 1);
     assert.equal(h.sent.filter((m) => /New order/.test(m.subject)).length, 2); // one per vendor, not per request
   });
@@ -140,7 +140,7 @@ describe('payment security', () => {
     const co = await h.service.checkout(user(), { items: [{ kind: 'product', id: 1, qty: 1 }], destination: h.dest, idempotencyKey: h.key() });
     const r = await h.service.handlePaymentResult({ reference: co.payment.reference, status: 'success', amountKobo: 100, currency: 'NGN' });
     assert.equal(r.mismatch, true);
-    assert.equal((await h.ordersRepo.findByRef(co.order.ref)).status, 'pending_payment');
+    assert.equal((await h.ordersModel.findByRef(co.order.ref)).status, 'pending_payment');
     assert.ok(h.sent.some((m) => /Payment problem/.test(m.subject)));
   });
   it('a payment in the wrong currency is refused', async () => {
@@ -158,11 +158,11 @@ describe('payment security', () => {
     const h = createHarness();
     const { co } = await paidOrder(h);
     // Force a second payment record for the same order (e.g. the customer paid in two tabs).
-    const second = (await h.ordersRepo.openPayment({ orderId: (await h.ordersRepo.findByRef(co.order.ref)).id, reference: "DUP-1", amount: co.order.total })).created;
+    const second = (await h.ordersModel.openPayment({ orderId: (await h.ordersModel.findByRef(co.order.ref)).id, reference: "DUP-1", amount: co.order.total })).created;
     assert.ok(second);
     const r = await h.service.handlePaymentResult({ reference: 'DUP-1', status: 'success', amountKobo: co.order.total * 100, currency: 'NGN' });
     assert.equal(r.refundNeeded, true);
-    assert.equal(h.ordersRepo._events.filter((e) => e.type === 'payment_confirmed').length, 1);
+    assert.equal(h.ordersModel._events.filter((e) => e.type === 'payment_confirmed').length, 1);
     assert.ok(h.sent.some((m) => /Payment problem/.test(m.subject)));
   });
   it('a failed payment can be retried with a fresh payment', async () => {
@@ -173,7 +173,7 @@ describe('payment security', () => {
     await h.service.handlePaymentResult({ reference: a.payment.reference, status: 'failed' });
     const b = await h.service.retryPayment(user(), a.order.ref);
     assert.notEqual(b.payment.reference, a.payment.reference);
-    assert.equal(h.ordersRepo._orders.length, 1);
+    assert.equal(h.ordersModel._orders.length, 1);
   });
   it("one customer cannot verify or read another's order", async () => {
     const h = createHarness();
@@ -218,7 +218,7 @@ describe('order life cycle', () => {
     await h.service.dispatchConfirm(del);
     assert.ok(h.sent.some((m) => m.to === 'c1@x.ng' && /Delivered/.test(m.subject)));
     await h.service.confirmReceived(user(), order.publicRef, vo);
-    const done = await h.ordersRepo.findByRef(order.publicRef);
+    const done = await h.ordersModel.findByRef(order.publicRef);
     assert.equal(done.vendorOrders[0].status, 'completed');
     assert.ok(h.sent.filter((m) => m.to === 'admin@sunledger.ng').length >= 6); // admin sees every step
   });
@@ -266,7 +266,7 @@ describe('order life cycle', () => {
     h.setClock(new Date(h.clock.t.getTime() + 2 * 3600 * 1000));
     const [a, b] = await Promise.all([h.service.housekeeping(), h.service.housekeeping()]);
     assert.equal(a.autoReceived + b.autoReceived, 1);
-    const done = await h.ordersRepo.findByRef(order.publicRef);
+    const done = await h.ordersModel.findByRef(order.publicRef);
     assert.equal(done.vendorOrders[0].status, 'completed');
     assert.equal(done.vendorOrders[0].autoCompleted, true);
   });

@@ -1,7 +1,6 @@
 import { env } from './config/env.js';
 import { createApp } from './app.js';
-import { adminService } from './modules/admin/index.js';
-import { startHousekeeping } from './modules/orders/index.js';
+import { adminService, startHousekeeping } from './services/index.js';
 
 // Pick up any pricing changes an admin saved earlier. If the table is missing (db:init not run yet) carry on with defaults.
 try {

@@ -1,7 +1,7 @@
 import { HttpError } from '../lib/httpError.js';
 import { SESSION_COOKIE, verifySession } from '../lib/tokens.js';
 import { toPublicUser } from '../lib/publicUser.js';
-import { usersRepo } from '../repos/users.js';
+import { usersModel } from '../models/users.js';
 
 const unauthorized = () => new HttpError(401, 'UNAUTHENTICATED', 'Please log in to continue.');
 
@@ -19,7 +19,7 @@ export async function authenticate(req, res, next) {
       throw unauthorized();
     }
 
-    const user = await usersRepo.findById(claims.sub);
+    const user = await usersModel.findById(claims.sub);
     if (
       !user ||
       user.status !== 'active' ||

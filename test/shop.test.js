@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { createShopService } from '../src/modules/marketplace/shop.service.js';
+import { createShopService } from '../src/services/shop.service.js';
 import { createHarness } from '../test-support/ordersHarness.js';
 
 function shop() {
   const h = createHarness();
-  const productsRepo = {
+  const productsModel = {
     async listPublic({ state }) { return h.products.filter((p) => p.vendorState === state && p.status === 'active').map((p) => ({ ...p, category: 'panel', rating: 4, vendorVerified: true })); },
     async findPublic(id) { const p = h.products.find((x) => x.id === id); return p ? { ...p, category: 'panel', rating: 4, vendorVerified: true, vendorId: p.vendorId } : null; },
   };
-  const dealsRepo = { async listActive() { return []; }, async findActive() { return null; } };
-  return { h, svc: createShopService({ productsRepo, dealsRepo, feesService: h.feesService, config: { requireVerified: false }, now: () => h.clock.t }) };
+  const dealsModel = { async listActive() { return []; }, async findActive() { return null; } };
+  return { h, svc: createShopService({ productsModel, dealsModel, feesService: h.feesService, config: { requireVerified: false }, now: () => h.clock.t }) };
 }
 
 describe('the shop by state', () => {

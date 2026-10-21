@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { createAdminService } from '../src/modules/admin/admin.service.js';
-import { createSettingsRegistry } from '../src/modules/admin/settingsRegistry.js';
-import { EAAS_RULES } from '../src/modules/marketplace/eaas.js';
-import { ASSUMPTIONS } from '../src/modules/analysis/pricing.js';
-import { computeEaas } from '../src/modules/marketplace/eaas.js';
+import { createAdminService } from '../src/services/admin.service.js';
+import { createSettingsRegistry } from '../src/utils/settingsRegistry.js';
+import { EAAS_RULES } from '../src/utils/eaas.js';
+import { ASSUMPTIONS } from '../src/utils/pricing.js';
+import { computeEaas } from '../src/utils/eaas.js';
 
 const clone = (o) => structuredClone(o);
 const failsWith = (p) => p.then(() => null, (e) => e);
@@ -20,14 +20,14 @@ beforeEach(() => {
   users = new Map([[1, { id: 1, role: 'admin', status: 'active' }], [2, { id: 2, role: 'individual', status: 'active' }]]);
   svc = createAdminService({
     registry,
-    settingsRepo: {
+    settingsModel: {
       all: async () => ({ ...saved }),
       set: async (k, v) => { saved[k] = v; },
       remove: async (k) => { delete saved[k]; },
     },
-    auditRepo: { add: async (a) => { audit.push(a); }, recent: async () => audit },
-    usersRepo: { findById: async (id) => users.get(id) ?? null, setStatus: async (id, s) => { users.get(id).status = s; }, listForAdmin: async () => [] },
-    vendorsRepo: {
+    auditModel: { add: async (a) => { audit.push(a); }, recent: async () => audit },
+    usersModel: { findById: async (id) => users.get(id) ?? null, setStatus: async (id, s) => { users.get(id).status = s; }, listForAdmin: async () => [] },
+    vendorsModel: {
       getProfile: async (id) => vendors.get(id) ?? null,
       setVerification: async (id, s) => { vendors.get(id).verification = s; return true; },
       listForAdmin: async () => [],

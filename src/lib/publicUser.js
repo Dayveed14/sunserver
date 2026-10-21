@@ -1,4 +1,4 @@
-import { findArea, stateName } from '../modules/geo/areas.js';
+import { findArea, stateName } from '../utils/areas.js';
 
 // The only shape of a user that ever leaves the API. Never include password_hash or lock state.
 export function toPublicUser(user) {

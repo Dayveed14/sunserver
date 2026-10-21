@@ -18,8 +18,8 @@ console.log = (...a) => { const s = a.join(' '); mails.push(s); if (!s.startsWit
 
 const { createApp } = await import('../src/app.js');
 const { createDispatchTokens } = await import('../src/lib/dispatchToken.js');
-const { createWebhookHandler } = await import('../src/modules/orders/orders.http.js');
-const { ordersService } = await import('../src/modules/orders/index.js');
+const { createWebhookHandler } = await import('../src/controllers/webhook.controller.js');
+const { ordersService } = await import('../src/services/index.js');
 const { query, pool } = await import('../src/db/pool.js');
 
 const server = http.createServer(createApp());
@@ -89,6 +89,29 @@ const prod = await vendor('POST', '/vendor/products', { category: 'panel', name:
 assert.equal(prod.status, 201, JSON.stringify(prod.body));
 const pid = prod.body.product.id;
 step('vendor added a product with a picture');
+
+// the vendor edits their own product: price and details
+const edited = await vendor('PUT', `/vendor/products/${pid}`, { category: 'panel', name: 'Mono 550W', brand: 'Acme', rating: 550, price: 98000, inStock: true, status: 'active', imageId: img.body.id, description: 'Tier 1 cells' });
+assert.equal(edited.status, 200, JSON.stringify(edited.body));
+assert.equal(edited.body.product.price, 98000);
+step('vendor edited their product (price and details)');
+
+// the admin edits any vendor's product and it is recorded
+const bcrypt = (await import('bcryptjs')).default;
+const aEmail = `e2e-admin-${stamp}@example.test`;
+await query(`INSERT INTO users (email, password_hash, role, full_name, email_verified_at) VALUES (?, ?, 'admin', 'E2E Admin', UTC_TIMESTAMP())`, [aEmail, await bcrypt.hash('Passw0rd!long', 4)]);
+const admin = client();
+assert.equal((await admin('POST', '/auth/login', { email: aEmail, password: 'Passw0rd!long' })).status, 200);
+const listed = await admin('GET', '/admin/products?q=Mono');
+assert.ok(listed.body.products.some((p) => p.id === pid && p.vendorName));
+const fixed = await admin('PUT', `/admin/products/${pid}`, { category: 'panel', name: 'Mono 550W', brand: 'Acme', rating: 550, price: 97000, inStock: true, status: 'active', imageId: img.body.id });
+assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
+assert.equal(fixed.body.product.price, 97000);
+assert.equal((await vendor('PUT', `/admin/products/${pid}`, { category: 'panel', name: 'x', rating: 550, price: 1, inStock: true, status: 'active' })).status, 403);
+const audit = await admin('GET', '/admin/audit');
+assert.ok(audit.body.entries.some((e) => e.action === 'product.update' && e.target === `product:${pid}`));
+await vendor('PUT', `/vendor/products/${pid}`, { category: 'panel', name: 'Mono 550W', brand: 'Acme', rating: 550, price: 100000, inStock: true, status: 'active', imageId: img.body.id });
+step('admin listed and edited a vendor product; a vendor cannot use the admin route; the change is in the audit log');
 const pic = await fetch(base + img.body.url.replace('/api', ''));
 assert.equal(pic.status, 200);
 
@@ -226,22 +249,22 @@ assert.ok(adminList.orders.every((o) => o.platformRevenue === o.serviceCharge + 
 step('admin order list reads from the database');
 
 // registration fee (dormant in production until switched on): exercise the real SQL here
-const { createRegistrationFeeService } = await import('../src/modules/vendors/registrationFee.service.js');
-const { vendorsRepo } = await import('../src/repos/vendors.js');
-const { FEE_RULES } = await import('../src/modules/fees/fees.js');
-const { paystack: ps } = await import('../src/modules/orders/index.js');
+const { createRegistrationFeeService } = await import('../src/services/registrationFee.service.js');
+const { vendorsModel } = await import('../src/models/vendors.js');
+const { FEE_RULES } = await import('../src/utils/fees.js');
+const { paystack: ps } = await import('../src/services/index.js');
 const [vrow] = await query('SELECT id FROM users WHERE email = ? AND role = ?', [vEmail, 'vendor']);
 const vid = Number(vrow.id);
-assert.equal((await vendorsRepo.getProfile(vid)).registrationFee, 'waived'); // joined while registration was free
+assert.equal((await vendorsModel.getProfile(vid)).registrationFee, 'waived'); // joined while registration was free
 await query("UPDATE vendor_profiles SET registration_fee_status = 'unpaid' WHERE user_id = ?", [vid]);
-const feeSvc = createRegistrationFeeService({ vendorsRepo, paystack: ps, rules: FEE_RULES, config: { required: true, callbackUrl: 'http://x/return', pollMs: 20 } });
+const feeSvc = createRegistrationFeeService({ vendorsModel, paystack: ps, rules: FEE_RULES, config: { required: true, callbackUrl: 'http://x/return', pollMs: 20 } });
 assert.equal(await feeSvc.isActive(vid), false);
 const starts = await Promise.all([1, 2, 3, 4].map(() => feeSvc.start({ id: vid, email: vEmail })));
 assert.equal(new Set(starts.map((x) => x.reference)).size, 1);
 assert.equal(starts[0].amount, 100000);
 ps.markMockPaid(starts[0].reference);
 await Promise.all(Array.from({ length: 6 }, () => feeSvc.verifyAndSettle({ id: vid }, starts[0].reference)));
-assert.equal((await vendorsRepo.getProfile(vid)).registrationFee, 'paid');
+assert.equal((await vendorsModel.getProfile(vid)).registrationFee, 'paid');
 assert.equal(Number((await query("SELECT COUNT(*) AS n FROM registration_payments WHERE vendor_id = ? AND status = 'success'", [vid]))[0].n), 1);
 step('registration fee (₦100,000): 4 taps = 1 payment link; 6 simultaneous confirmations activated the vendor once');
 

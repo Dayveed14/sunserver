@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { createAuthService } from '../src/modules/auth/auth.service.js';
-import { createMemoryRepos } from '../test-support/memoryRepos.js';
+import { createAuthService } from '../src/services/auth.service.js';
+import { createMemoryModels } from '../test-support/memoryModels.js';
 
 const MIN = 60 * 1000;
 const config = {
@@ -14,13 +14,13 @@ const config = {
 };
 const signup = { email: 'ada@example.com', password: 'Sunny2026x', role: 'individual', fullName: 'Ada Obi' };
 
-let svc, repos, otpBox, resetBox, clock, failMail;
+let svc, models, otpBox, resetBox, clock, failMail;
 const advance = (ms) => { clock = new Date(clock.getTime() + ms); };
 const tokenOf = (msg) => new URL(msg.link).searchParams.get('token');
 const fails = (p) => p.then(() => null, (e) => e.code);
 
 beforeEach(async () => {
-  repos = createMemoryRepos();
+  models = createMemoryModels();
   otpBox = []; resetBox = [];
   clock = new Date('2026-10-17T09:00:00Z');
   failMail = false;
@@ -28,7 +28,7 @@ beforeEach(async () => {
     async sendOtp(m) { otpBox.push(m); },
     async sendPasswordReset(m) { if (failMail) throw new Error('down'); resetBox.push(m); },
   };
-  svc = createAuthService({ users: repos.usersRepo, otps: repos.otpsRepo, resets: repos.resetsRepo, mailer, config, now: () => clock });
+  svc = createAuthService({ users: models.usersModel, otps: models.otpsModel, resets: models.resetsModel, mailer, config, now: () => clock });
   await svc.register(signup);
   await svc.verifyEmail({ email: signup.email, code: otpBox.at(-1).code });
   advance(2 * MIN);
@@ -40,14 +40,14 @@ describe('forgot password', () => {
     assert.equal(resetBox.length, 1);
     const token = tokenOf(resetBox[0]);
     assert.ok(token.length >= 40);
-    assert.ok(!repos.resetRows[0].token_hash.includes(token));
+    assert.ok(!models.resetRows[0].token_hash.includes(token));
   });
 
   it('answers the same for unknown, unverified and suspended accounts, and sends nothing', async () => {
     assert.deepEqual(await svc.forgotPassword({ email: 'nobody@example.com' }), { ok: true });
     await svc.register({ ...signup, email: 'new@example.com' }); // never verified
     assert.deepEqual(await svc.forgotPassword({ email: 'new@example.com' }), { ok: true });
-    repos.users.get(1).status = 'suspended';
+    models.users.get(1).status = 'suspended';
     assert.deepEqual(await svc.forgotPassword({ email: signup.email }), { ok: true });
     assert.equal(resetBox.length, 0);
   });
@@ -63,7 +63,7 @@ describe('forgot password', () => {
   it('still answers ok if the email fails to send, and leaves no usable link behind', async () => {
     failMail = true;
     assert.deepEqual(await svc.forgotPassword({ email: signup.email }), { ok: true });
-    assert.equal(repos.resetRows.length, 0);
+    assert.equal(models.resetRows.length, 0);
   });
 });
 
@@ -71,12 +71,12 @@ describe('reset password', () => {
   const request = async () => { await svc.forgotPassword({ email: signup.email }); return tokenOf(resetBox.at(-1)); };
 
   it('sets the new password, ends old sessions and clears a lockout', async () => {
-    const before = repos.users.get(1).token_version;
-    repos.users.get(1).locked_until = new Date(clock.getTime() + 10 * MIN);
+    const before = models.users.get(1).token_version;
+    models.users.get(1).locked_until = new Date(clock.getTime() + 10 * MIN);
     const token = await request();
     await svc.resetPassword({ token, password: 'Brand9newPass' });
-    assert.equal(repos.users.get(1).token_version, before + 1);
-    assert.equal(repos.users.get(1).locked_until, null);
+    assert.equal(models.users.get(1).token_version, before + 1);
+    assert.equal(models.users.get(1).locked_until, null);
     assert.equal((await svc.login({ email: signup.email, password: 'Brand9newPass' })).email, signup.email);
     assert.equal(await fails(svc.login({ email: signup.email, password: signup.password })), 'INVALID_CREDENTIALS');
   });
@@ -104,7 +104,7 @@ describe('reset password', () => {
 
   it('does not let a suspended account back in through a link requested earlier', async () => {
     const token = await request();
-    repos.users.get(1).status = 'suspended';
+    models.users.get(1).status = 'suspended';
     assert.equal(await fails(svc.resetPassword({ token, password: 'Brand9newPass' })), 'INVALID_RESET');
   });
 });

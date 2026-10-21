@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { LEASE_RULES, leaseOptions, priceLease, validateLeaseTerms } from '../src/modules/marketplace/lease.js';
-import { dealSchema } from '../src/modules/marketplace/marketplace.schemas.js';
-import { planOffer, plansOffered } from '../src/modules/marketplace/matching.js';
+import { LEASE_RULES, leaseOptions, priceLease, validateLeaseTerms } from '../src/utils/lease.js';
+import { dealSchema } from '../src/validators/marketplace.schemas.js';
+import { planOffer, plansOffered } from '../src/utils/matching.js';
 
 const items = [{ productId: 1, qty: 2 }, { productId: 2, qty: 1 }, { productId: 3, qty: 1 }];
 

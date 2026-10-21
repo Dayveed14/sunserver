@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { DELIVERY_RULES, buildFeeMatrix, feeForDistance, haversineKm, quoteTrip, roadDistanceKm } from '../src/modules/delivery/delivery.js';
-import { SLA_RULES, addWorkingMinutes, autoReceiveAt, estimateDelivery, formatLagos, latestOf, nextOpen } from '../src/modules/delivery/sla.js';
-import { areasOf, findArea } from '../src/modules/geo/areas.js';
+import { DELIVERY_RULES, buildFeeMatrix, feeForDistance, haversineKm, quoteTrip, roadDistanceKm } from '../src/utils/delivery.js';
+import { SLA_RULES, addWorkingMinutes, autoReceiveAt, estimateDelivery, formatLagos, latestOf, nextOpen } from '../src/utils/sla.js';
+import { areasOf, findArea } from '../src/utils/areas.js';
 
 describe('delivery pricing', () => {
   const vi = findArea('lagos', 'victoria-island');
@@ -122,7 +122,7 @@ describe('delivery time promises', () => {
   });
 });
 
-import { createFeesService } from '../src/modules/delivery/fees.service.js';
+import { createFeesService } from '../src/services/deliveryFees.service.js';
 
 describe('vendor delivery prices', () => {
   const memory = () => {
@@ -131,7 +131,7 @@ describe('vendor delivery prices', () => {
     return {
       rows,
       locs,
-      repo: {
+      model: {
         async replaceForVendor(id, list) { rows.set(id, list); },
         async forVendors(ids) { return ids.flatMap((id) => (rows.get(id) ?? []).map((r) => ({ vendorId: id, ...r }))); },
         async vendorLocations() { return [...locs.values()]; },
@@ -142,14 +142,14 @@ describe('vendor delivery prices', () => {
 
   it('saves a price from a vendor to every area in their state', async () => {
     const m = memory();
-    const svc = createFeesService({ repo: m.repo });
+    const svc = createFeesService({ model: m.model });
     assert.equal(await svc.refreshVendor(1, { vendorId: 1, state: 'lagos', areaId: 'victoria-island' }), areasOf('lagos').length);
     assert.equal(m.rows.get(1).length, areasOf('lagos').length);
   });
 
   it('quotes each vendor separately, so two vendors give two fees', async () => {
     const m = memory();
-    const svc = createFeesService({ repo: m.repo });
+    const svc = createFeesService({ model: m.model });
     const vendors = [
       { vendorId: 1, state: 'lagos', areaId: 'victoria-island' },
       { vendorId: 2, state: 'lagos', areaId: 'ikorodu' },
@@ -163,7 +163,7 @@ describe('vendor delivery prices', () => {
 
   it('cannot deliver across states', async () => {
     const m = memory();
-    const svc = createFeesService({ repo: m.repo });
+    const svc = createFeesService({ model: m.model });
     const { fees, unreachable } = await svc.quote([{ vendorId: 1, state: 'lagos', areaId: 'ikeja' }], { state: 'abuja', areaId: 'garki' });
     assert.equal(fees.size, 0);
     assert.deepEqual(unreachable, [1]);
@@ -171,7 +171,7 @@ describe('vendor delivery prices', () => {
 
   it('works a price out on the spot for a vendor with none saved yet, and keeps it', async () => {
     const m = memory();
-    const svc = createFeesService({ repo: m.repo });
+    const svc = createFeesService({ model: m.model });
     const { fees } = await svc.quote([{ vendorId: 9, state: 'abuja', areaId: 'garki' }], { state: 'abuja', areaId: 'kubwa' });
     assert.ok(fees.get(9).fee >= 1500);
     assert.ok(m.rows.get(9).length > 0);
@@ -181,7 +181,7 @@ describe('vendor delivery prices', () => {
     const m = memory();
     m.locs.set(1, { vendorId: 1, state: 'lagos', areaId: 'ikeja' });
     m.locs.set(2, { vendorId: 2, state: 'abuja', areaId: 'garki' });
-    const svc = createFeesService({ repo: m.repo });
+    const svc = createFeesService({ model: m.model });
     assert.equal(await svc.recomputeAll(), 2);
     assert.ok(m.rows.has(1) && m.rows.has(2));
   });

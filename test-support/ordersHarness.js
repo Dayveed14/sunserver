@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import { createFeesService } from '../src/modules/delivery/fees.service.js';
+import { createFeesService } from '../src/services/deliveryFees.service.js';
 import { createDispatchTokens } from '../src/lib/dispatchToken.js';
 import { createPaystack } from '../src/lib/paystack.js';
-import { createNotifier } from '../src/modules/orders/notifier.js';
-import { createOrdersService } from '../src/modules/orders/orders.service.js';
-import { createMemoryOrdersRepo } from './memoryOrders.js';
+import { createNotifier } from '../src/services/notifier.js';
+import { createOrdersService } from '../src/services/orders.service.js';
+import { createMemoryOrdersModel } from './memoryOrders.js';
 
 // A small shop to buy from: two Lagos vendors and one in Abuja, all verified.
 export function createHarness({ now = () => new Date('2026-10-19T09:00:00Z'), requireVerified = false, fees } = {}) {
@@ -30,20 +30,20 @@ export function createHarness({ now = () => new Date('2026-10-19T09:00:00Z'), re
     mk(4, 10, { name: 'Out of stock thing', price: 5000, inStock: false }),
   ];
   const deals = [mk(20, 10, { title: 'Home starter kit', buyPrice: 900000, items: [{ productStatus: 'active' }] })];
-  const productsRepo = { async findManyByIds(ids) { return products.filter((p) => ids.includes(p.id)).map((p) => ({ ...p })); } };
-  const dealsRepo = { async findActive(id) { const d = deals.find((x) => x.id === id && x.status === 'active'); return d ? { ...d } : null; } };
+  const productsModel = { async findManyByIds(ids) { return products.filter((p) => ids.includes(p.id)).map((p) => ({ ...p })); } };
+  const dealsModel = { async findActive(id) { const d = deals.find((x) => x.id === id && x.status === 'active'); return d ? { ...d } : null; } };
 
   const saved = new Map();
-  const feeRepo = {
+  const feeModel = {
     async vendorLocation(id) { return { vendorId: id, state: vendors[id].state, areaId: vendors[id].area }; },
     async vendorLocations() { return Object.values(vendors).map((v) => ({ vendorId: v.id, state: v.state, areaId: v.area })); },
     async replaceForVendor(id, rows) { saved.set(id, rows); },
     async forVendors(ids) { return ids.flatMap((id) => (saved.get(id) ?? []).map((r) => ({ vendorId: id, ...r }))); },
   };
-  const feesService = createFeesService({ repo: feeRepo });
+  const feesService = createFeesService({ model: feeModel });
 
   const clock = { t: now() };
-  const ordersRepo = createMemoryOrdersRepo(directory, () => clock.t);
+  const ordersModel = createMemoryOrdersModel(directory, () => clock.t);
   const secretKey = 'sk_test_secret';
   const paystack = createPaystack({ secretKey: '', clientOrigin: 'http://localhost:5173', isProd: false });
   const sent = [];
@@ -51,9 +51,9 @@ export function createHarness({ now = () => new Date('2026-10-19T09:00:00Z'), re
   const tokens = createDispatchTokens('dispatch-secret-dispatch-secret-1234');
   const notifier = createNotifier({ mailer, config: { logisticsEmail: 'rider@logistics.ng', adminEmail: 'admin@sunledger.ng', appUrl: 'http://localhost:5173' }, tokens, now });
   const config = { requireVerified, maxQty: 20, maxTotal: 20_000_000, callbackUrl: 'http://localhost:5173/checkout/return', pendingExpiryHours: 24, pollMs: 2 };
-  const service = createOrdersService({ productsRepo, dealsRepo, ordersRepo, feesService, paystack, notifier, config, ...(fees ? { feeRules: fees } : {}), now: () => clock.t });
+  const service = createOrdersService({ productsModel, dealsModel, ordersModel, feesService, paystack, notifier, config, ...(fees ? { feeRules: fees } : {}), now: () => clock.t });
 
   const dest = { name: 'Chi One', phone: '+2348022222222', line: '5 Buyer St', state: 'lagos', areaId: 'yaba' };
   const key = () => crypto.randomBytes(12).toString('hex');
-  return { service, ordersRepo, paystack, sent, tokens, products, deals, clock, vendors, customers, dest, key, secretKey, feesService, setClock: (d) => { clock.t = d; } };
+  return { service, ordersModel, paystack, sent, tokens, products, deals, clock, vendors, customers, dest, key, secretKey, feesService, setClock: (d) => { clock.t = d; } };
 }

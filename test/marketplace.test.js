@@ -3,11 +3,11 @@ import { beforeEach, describe, it } from 'node:test';
 import {
   checkDealComposition, dealFit, dealSpecs, diyOptions, limits, matchDeals, planOffer,
   qtyRange, quoteDiy, requirementFromResult, seriesCount, voltageForKva,
-} from '../src/modules/marketplace/matching.js';
-import { createCatalogService } from '../src/modules/marketplace/catalog.service.js';
-import { createOffersService } from '../src/modules/marketplace/offers.service.js';
-import { dealSchema, productSchema } from '../src/modules/marketplace/marketplace.schemas.js';
-import { createMarketplaceRepos } from '../test-support/marketplaceRepos.js';
+} from '../src/utils/matching.js';
+import { createCatalogService } from '../src/services/catalog.service.js';
+import { createOffersService } from '../src/services/offers.service.js';
+import { dealSchema, productSchema } from '../src/validators/marketplace.schemas.js';
+import { createMarketplaceModels } from '../test-support/marketplaceModels.js';
 
 // A small customer: 0.75 kWp of panels, a 1.5 kVA inverter, 2.5 kWh of battery.
 const req = { panelKwp: 0.75, inverterKva: 1.5, batteryKwh: 2.5, suggestedVoltage: 12 };
@@ -209,10 +209,10 @@ describe('product and deal validation', () => {
 });
 
 describe('vendor catalogue rules', () => {
-  let repos, svc;
+  let models, svc;
   beforeEach(() => {
-    repos = createMarketplaceRepos();
-    svc = createCatalogService(repos);
+    models = createMarketplaceModels();
+    svc = createCatalogService(models);
   });
   const prod = (category, rating, voltage) => ({ category, name: `${category} ${rating}`, rating, systemVoltage: voltage ?? null, price: 100000, inStock: true, status: 'active' });
   const dealData = (items) => ({ title: 'Starter', description: null, items, installationIncluded: true, warrantyYears: null, buyPrice: 900000, leaseDeposit: null, leaseMonthly: null, leaseMonths: null, rentMonthly: null, eaasMonthly: null, eaasMonths: null, status: 'active' });
@@ -256,7 +256,7 @@ describe('vendor catalogue rules', () => {
 });
 
 describe('customer offers and requests', () => {
-  let repos, svc;
+  let models, svc;
   const result = {
     segment: 'home', supplyBand: 'B', disco: { id: 'aedc', name: 'AEDC' },
     usage: { kwhPerDay: 3, connectedKw: 1.2 },
@@ -266,17 +266,17 @@ describe('customer offers and requests', () => {
   };
 
   beforeEach(() => {
-    repos = createMarketplaceRepos();
-    repos.setVendor(1, 'Sun Co', 'verified');
-    repos.setVendor(2, 'Volt Ltd', 'pending');
-    repos.setVendor(3, 'Bad Co', 'rejected');
-    repos.addAssessment(10, 7, result);
-    svc = createOffersService({ ...repos, config: { requireVerified: false } });
+    models = createMarketplaceModels();
+    models.setVendor(1, 'Sun Co', 'verified');
+    models.setVendor(2, 'Volt Ltd', 'pending');
+    models.setVendor(3, 'Bad Co', 'rejected');
+    models.addAssessment(10, 7, result);
+    svc = createOffersService({ ...models, config: { requireVerified: false } });
   });
 
   const seedParts = async () => {
     const mk = (vendorId, category, rating, voltage) =>
-      repos.productsRepo.create(vendorId, { category, name: `${category} ${rating}`, rating, systemVoltage: voltage ?? null, price: 100000, inStock: true, status: 'active' });
+      models.productsModel.create(vendorId, { category, name: `${category} ${rating}`, rating, systemVoltage: voltage ?? null, price: 100000, inStock: true, status: 'active' });
     return {
       panel: await mk(1, 'panel', 750),
       inverter: await mk(1, 'inverter', 1.5, 12),
@@ -285,9 +285,9 @@ describe('customer offers and requests', () => {
     };
   };
   const seedDeal = async (vendorId = 1, buyPrice = 800000) => {
-    const mk = (category, rating, voltage) => repos.productsRepo.create(vendorId, { category, name: category, rating, systemVoltage: voltage ?? null, price: 1, inStock: true, status: 'active' });
+    const mk = (category, rating, voltage) => models.productsModel.create(vendorId, { category, name: category, rating, systemVoltage: voltage ?? null, price: 1, inStock: true, status: 'active' });
     const items = [{ productId: await mk('panel', 550), qty: 2 }, { productId: await mk('inverter', 1.5, 12), qty: 1 }, { productId: await mk('battery', 2.4, 12), qty: 1 }];
-    return repos.dealsRepo.create(vendorId, { title: 'Deal', items, status: 'active', buyPrice, leaseDeposit: null, leaseMonthly: 30000, leaseMonths: 24, rentMonthly: null, eaasMonthly: null, eaasMonths: null });
+    return models.dealsModel.create(vendorId, { title: 'Deal', items, status: 'active', buyPrice, leaseDeposit: null, leaseMonthly: 30000, leaseMonths: 24, rentMonthly: null, eaasMonthly: null, eaasMonths: null });
   };
 
   it('shows only the owner their own assessment', async () => {
@@ -315,7 +315,7 @@ describe('customer offers and requests', () => {
     const p = await seedParts();
     const out = await svc.createRequests(7, 10, { kind: 'diy', items: [{ productId: p.panel, qty: 1 }, { productId: p.inverter, qty: 1 }, { productId: p.battery, qty: 1 }] });
     assert.equal(out.requests.length, 2);
-    const sun = repos.requests.find((r) => r.vendorId === 1);
+    const sun = models.requests.find((r) => r.vendorId === 1);
     assert.equal(sun.upfrontPrice, 200000);
     assert.deepEqual(sun.summary.wholeSystem.otherVendors, ['Volt Ltd']);
   });
@@ -335,7 +335,7 @@ describe('customer offers and requests', () => {
     const dealId = await seedDeal();
     const out = await svc.createRequests(7, 10, { kind: 'deal', dealId, plan: 'lease' });
     assert.equal(out.requests.length, 1);
-    const saved = repos.requests[0];
+    const saved = models.requests[0];
     assert.equal(saved.monthlyPrice, 30000);
     assert.equal(saved.summary.offer.termMonths, 24);
     await assert.rejects(svc.createRequests(7, 10, { kind: 'deal', dealId, plan: 'lease' }), (e) => e.code === 'ALREADY_REQUESTED');
@@ -347,6 +347,6 @@ describe('customer offers and requests', () => {
     const { requests } = await svc.createRequests(7, 10, { kind: 'deal', dealId, plan: 'buy' });
     await assert.rejects(svc.cancel(99, requests[0].id), (e) => e.status === 404);
     await svc.cancel(7, requests[0].id);
-    assert.equal(repos.requests[0].status, 'cancelled');
+    assert.equal(models.requests[0].status, 'cancelled');
   });
 });

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { createAuthService } from '../src/modules/auth/auth.service.js';
-import { registerSchema } from '../src/modules/auth/auth.schemas.js';
-import { areasOf, findArea } from '../src/modules/geo/areas.js';
-import { createMemoryRepos } from '../test-support/memoryRepos.js';
+import { createAuthService } from '../src/services/auth.service.js';
+import { registerSchema } from '../src/validators/auth.schemas.js';
+import { areasOf, findArea } from '../src/utils/areas.js';
+import { createMemoryModels } from '../test-support/memoryModels.js';
 
 const config = {
   bcryptRounds: 4, otpSecret: 'k',
@@ -13,14 +13,14 @@ const config = {
 const address = { line: '12 Adeola Odeku Street', state: 'lagos', areaId: 'victoria-island' };
 const base = { email: 'ada@example.com', password: 'Sunny2026x', fullName: 'Ada Obi', phone: '+2348031234567', address };
 
-let svc, repos, mailbox, created;
+let svc, models, mailbox, created;
 const code = (p) => p.then(() => null, (e) => e.code);
 beforeEach(async () => {
-  repos = createMemoryRepos();
+  models = createMemoryModels();
   mailbox = [];
   created = [];
   svc = createAuthService({
-    users: repos.usersRepo, otps: repos.otpsRepo, resets: repos.resetsRepo,
+    users: models.usersModel, otps: models.otpsModel, resets: models.resetsModel,
     mailer: { async sendOtp(m) { mailbox.push(m); }, async sendPasswordReset() {} }, config,
     onAccountCreated: async (u) => { created.push(u.role); },
   });
@@ -44,7 +44,7 @@ describe('one email, several account types', () => {
   it('will not add a type to someone else\'s email without that account\'s password', async () => {
     const e = await code(svc.register({ ...base, password: 'Wrong2026pass', role: 'vendor', companyName: 'Evil Ltd' }));
     assert.equal(e, 'EXISTING_ACCOUNT_PASSWORD');
-    assert.equal((await repos.usersRepo.listByEmail(base.email)).length, 1);
+    assert.equal((await models.usersModel.listByEmail(base.email)).length, 1);
   });
 
   it('logs in to the individual account by default and can pick the vendor account', async () => {
@@ -54,14 +54,14 @@ describe('one email, several account types', () => {
   });
 
   it('switches between the accounts on one email, and refuses a type that does not exist', async () => {
-    const ind = await repos.usersRepo.findByEmailRole(base.email, 'individual');
+    const ind = await models.usersModel.findByEmailRole(base.email, 'individual');
     assert.equal(await code(svc.switchAccount(ind.id, 'vendor')), 'NOT_FOUND');
     await svc.register({ ...base, role: 'vendor', companyName: 'Sunrise Solar' });
     assert.equal((await svc.switchAccount(ind.id, 'vendor')).companyName, 'Sunrise Solar');
   });
 
   it('opens a business account for a signed-in person and keeps the same password', async () => {
-    const ind = await repos.usersRepo.findByEmailRole(base.email, 'individual');
+    const ind = await models.usersModel.findByEmailRole(base.email, 'individual');
     const biz = await svc.addAccount(ind.id, { role: 'business', companyName: 'Obi Ltd', address });
     assert.equal(biz.role, 'business');
     assert.equal(await code(svc.addAccount(ind.id, { role: 'business', companyName: 'Again', address })), 'EMAIL_TAKEN');
@@ -71,8 +71,8 @@ describe('one email, several account types', () => {
   it('a password reset covers every account on the email', async () => {
     await svc.register({ ...base, role: 'vendor', companyName: 'Sunrise Solar' });
     await svc.forgotPassword({ email: base.email }); // no mailer capture needed: set directly
-    await repos.usersRepo.setPasswordForEmail(base.email, (await repos.usersRepo.listByEmail(base.email))[0].password_hash);
-    const rows = await repos.usersRepo.listByEmail(base.email);
+    await models.usersModel.setPasswordForEmail(base.email, (await models.usersModel.listByEmail(base.email))[0].password_hash);
+    const rows = await models.usersModel.listByEmail(base.email);
     assert.equal(new Set(rows.map((r) => r.password_hash)).size, 1);
   });
 

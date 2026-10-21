@@ -1,7 +1,7 @@
-// An in-memory stand-in for the orders repo, with the same all-or-nothing rules for settling a payment and
+// An in-memory stand-in for the orders model, with the same all-or-nothing rules for settling a payment and
 // moving an order along, so the money-handling logic can be tested without a database.
 // `directory` supplies { customer(id), vendor(id) } details.
-export function createMemoryOrdersRepo(directory, now = () => new Date()) {
+export function createMemoryOrdersModel(directory, now = () => new Date()) {
   let seq = 0;
   const orders = [];
   const payments = [];

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { EAAS_RULES, computeEaas, validateEaasTerms } from '../src/modules/marketplace/eaas.js';
-import { planOffer, plansOffered } from '../src/modules/marketplace/matching.js';
+import { EAAS_RULES, computeEaas, validateEaasTerms } from '../src/utils/eaas.js';
+import { planOffer, plansOffered } from '../src/utils/matching.js';
 
 const base = (over = {}) => ({
   components: [

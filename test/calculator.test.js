@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { HttpError } from '../src/lib/httpError.js';
-import { estimate } from '../src/modules/analysis/calculator.js';
-import { catalogs } from '../src/modules/analysis/catalog/index.js';
-import { HOURS_BY_KEY } from '../src/modules/analysis/catalog/hours.js';
-import { ASSUMPTIONS } from '../src/modules/analysis/pricing.js';
+import { estimate } from '../src/utils/calculator.js';
+import { catalogs } from '../src/utils/catalog/index.js';
+import { HOURS_BY_KEY } from '../src/utils/catalog/hours.js';
+import { ASSUMPTIONS } from '../src/utils/pricing.js';
 
 const run = (input, assumptions = ASSUMPTIONS) => estimate(input, { catalogs, assumptions });
 const base = { segment: 'home', disco: 'aedc', supplyBand: null };
