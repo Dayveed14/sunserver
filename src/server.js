@@ -1,6 +1,7 @@
 import { env } from './config/env.js';
 import { createApp } from './app.js';
 import { adminService } from './modules/admin/index.js';
+import { startHousekeeping } from './modules/orders/index.js';
 
 // Pick up any pricing changes an admin saved earlier. If the table is missing (db:init not run yet) carry on with defaults.
 try {
@@ -11,6 +12,7 @@ try {
 }
 
 const app = createApp();
+startHousekeeping();
 app.listen(env.port, () => {
   console.log(`Sunledger API listening on http://localhost:${env.port} (${env.nodeEnv})`);
 });

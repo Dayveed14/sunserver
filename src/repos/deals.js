@@ -4,9 +4,12 @@ const SELECT = `
   SELECT d.id, d.vendor_id, d.title, d.description, d.installation_included, d.warranty_years,
          d.buy_price, d.lease_deposit, d.lease_monthly, d.lease_months, d.rent_monthly,
          d.eaas_monthly, d.eaas_months, d.status, d.created_at, d.updated_at,
-         v.company_name AS vendor_name, v.verification_status AS vendor_verification
+         v.company_name AS vendor_name, v.verification_status AS vendor_verification,
+         di.image_id, va.state AS vendor_state, va.area_id AS vendor_area
   FROM deals d
-  JOIN vendor_profiles v ON v.user_id = d.vendor_id`;
+  JOIN vendor_profiles v ON v.user_id = d.vendor_id
+  LEFT JOIN deal_images di ON di.deal_id = d.id
+  LEFT JOIN addresses va ON va.user_id = d.vendor_id`;
 
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 
@@ -16,6 +19,10 @@ const toDeal = (r) => ({
   vendorName: r.vendor_name,
   vendorVerified: r.vendor_verification === 'verified',
   vendorVerification: r.vendor_verification,
+  vendorState: r.vendor_state ?? null,
+  vendorArea: r.vendor_area ?? null,
+  imageId: r.image_id == null ? null : Number(r.image_id),
+  imageUrl: r.image_id == null ? null : `/api/images/${r.image_id}`,
   title: r.title,
   description: r.description,
   installationIncluded: Boolean(r.installation_included),
@@ -31,6 +38,7 @@ const toDeal = (r) => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   eaasTerms: null,
+  leaseTerms: null,
   items: [],
 });
 
@@ -50,6 +58,10 @@ async function attachItems(deals) {
      FROM deal_eaas_terms WHERE deal_id IN (${marks})`,
     deals.map((d) => d.id)
   );
+  const leases = await query(`SELECT deal_id, deposit_pct, tenors FROM deal_lease_terms WHERE deal_id IN (${marks})`, deals.map((d) => d.id));
+  for (const l of leases) {
+    byDeal.get(Number(l.deal_id)).leaseTerms = { depositPct: Number(l.deposit_pct), tenors: String(l.tenors).split(',').map(Number) };
+  }
   for (const t of terms) {
     byDeal.get(Number(t.deal_id)).eaasTerms = {
       tenorMonths: Number(t.tenor_months),
@@ -100,7 +112,23 @@ const writeTerms = async (conn, dealId, t) => {
   );
 };
 
+const writeLease = async (conn, dealId, t) => {
+  await conn.execute('DELETE FROM deal_lease_terms WHERE deal_id = ?', [dealId]);
+  if (!t) return;
+  await conn.execute('INSERT INTO deal_lease_terms (deal_id, deposit_pct, tenors) VALUES (?, ?, ?)', [dealId, t.depositPct, [...t.tenors].sort((a, b) => a - b).join(',')]);
+};
+
 export const dealsRepo = {
+  async setImage(dealId, imageId) {
+    if (imageId == null) await query('DELETE FROM deal_images WHERE deal_id = ?', [dealId]);
+    else {
+      await query(
+        'INSERT INTO deal_images (deal_id, image_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE image_id = VALUES(image_id)',
+        [dealId, imageId]
+      );
+    }
+  },
+
   async listByVendor(vendorId) {
     const rows = await query(`${SELECT} WHERE d.vendor_id = ? AND d.status <> 'archived' ORDER BY d.id DESC`, [vendorId]);
     return attachItems(rows.map(toDeal));
@@ -121,9 +149,10 @@ export const dealsRepo = {
     return deal ?? null;
   },
 
-  async listActive({ requireVerified }) {
+  async listActive({ requireVerified, state }) {
     const rows = await query(
-      `${SELECT} WHERE d.status = 'active' AND ${requireVerified ? "v.verification_status = 'verified'" : "v.verification_status <> 'rejected'"} ORDER BY d.id DESC LIMIT 1000`
+      `${SELECT} WHERE d.status = 'active' AND ${requireVerified ? "v.verification_status = 'verified'" : "v.verification_status <> 'rejected'"}${state ? ' AND va.state = ?' : ''} ORDER BY d.id DESC LIMIT 1000`,
+      state ? [state] : []
     );
     return attachItems(rows.map(toDeal));
   },
@@ -138,6 +167,7 @@ export const dealsRepo = {
       );
       await writeItems(conn, res.insertId, d.items);
       await writeTerms(conn, res.insertId, d.eaasTerms);
+      await writeLease(conn, res.insertId, d.leaseTerms);
       return res.insertId;
     });
   },
@@ -153,6 +183,7 @@ export const dealsRepo = {
       if (res.affectedRows === 0) return false;
       await writeItems(conn, id, d.items);
       await writeTerms(conn, id, d.eaasTerms);
+      await writeLease(conn, id, d.leaseTerms);
       return true;
     });
   },

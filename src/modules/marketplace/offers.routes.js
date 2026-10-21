@@ -16,7 +16,7 @@ const idOf = (value) => {
 
 // Everything a customer can choose for one saved assessment, for one way of paying.
 router.get('/assessments/:id', asyncHandler(async (req, res) => {
-  res.json(await svc.getOffers(req.user.id, idOf(req.params.id), String(req.query.plan ?? 'buy')));
+  res.json(await svc.getOffers(req.user.id, idOf(req.params.id), String(req.query.plan ?? 'buy'), req.user.role));
 }));
 
 // Prices and checks a DIY selection without sending anything to a vendor.
@@ -25,7 +25,7 @@ router.post('/assessments/:id/diy-quote', validate(diyQuoteSchema), asyncHandler
 }));
 
 router.post('/assessments/:id/requests', requestLimiter, validate(createRequestSchema), asyncHandler(async (req, res) => {
-  res.status(201).json(await svc.createRequests(req.user.id, idOf(req.params.id), req.valid));
+  res.status(201).json(await svc.createRequests(req.user.id, idOf(req.params.id), req.valid, req.user.role));
 }));
 
 router.get('/requests', asyncHandler(async (req, res) => res.json({ requests: await svc.listMine(req.user.id) })));

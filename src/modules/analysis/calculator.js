@@ -1,4 +1,5 @@
 import { HttpError } from '../../lib/httpError.js';
+import { eaasOffered } from '../../config/launch.js';
 import { EAAS_RULES, computeEaas } from '../marketplace/eaas.js';
 import { HOURS_BY_KEY } from './catalog/hours.js';
 
@@ -240,22 +241,27 @@ export function estimate(input, { catalogs, assumptions: A }) {
   };
   for (const o of Object.values(options)) o.monthlySaving = r0(baseline - o.monthlyCostAfter);
 
-  const lowestTotalKey = Object.values(options).reduce((best, o) => (o.total5yr < best.total5yr ? o : best)).key;
+  // Energy as a service is left out entirely for customers it is not offered to (config/launch.js).
+  const offered = eaasOffered(input.segment) ? options : Object.fromEntries(Object.entries(options).filter(([k]) => k !== 'eaas'));
+  const lowestTotalKey = Object.values(offered).reduce((best, o) => (o.total5yr < best.total5yr ? o : best)).key;
   const saves = (k) => options[k].monthlySaving > 0;
 
   // If buying would take more than 7 years to pay back (or never does), be honest about it
   // rather than steering the customer toward an option that will not help them.
   const solarMayNotPayBack = solar.paybackMonthsVsCurrent === null || solar.paybackMonthsVsCurrent > 84;
 
+  // Energy as a service is only offered to the kinds of customer set in config/launch.js (businesses for now).
+  const withEaas = eaasOffered(input.segment);
+  const pick = (order) => order.filter((k) => withEaas || k !== 'eaas').find(saves) ?? null;
   let suggested = null;
   if (solarMayNotPayBack) {
     suggested = null;
   } else if (input.segment === 'home') {
-    suggested = ['eaas', 'lease', 'rent'].find(saves) ?? null;
+    suggested = pick(['eaas', 'lease', 'rent']);
   } else if (solar.paybackMonthsVsCurrent <= 36) {
     suggested = 'buy';
   } else {
-    suggested = ['lease', 'eaas', 'rent'].find(saves) ?? null;
+    suggested = pick(['lease', 'eaas', 'rent']);
   }
 
   // ---- 7. Output ---------------------------------------------------------------------------
@@ -297,7 +303,7 @@ export function estimate(input, { catalogs, assumptions: A }) {
     grid: { bands, selectedBand: selectedBand?.band ?? null },
     current,
     solar,
-    options: { ...options, suggested, lowestTotalKey },
+    options: { ...offered, suggested, lowestTotalKey },
     flags: {
       needsSiteAudit: connectedW / 1000 > S.siteAuditKw,
       solarMayNotPayBack,

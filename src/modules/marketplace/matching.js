@@ -1,4 +1,5 @@
 import { priceDealEaas } from './eaas.js';
+import { leaseOptions } from './lease.js';
 
 // The rules that connect an assessment to what vendors sell. Pure functions: no database, no HTTP.
 //
@@ -277,7 +278,7 @@ const baseOffer = { plan: null, upfront: null, monthly: null, termMonths: null, 
 
 // What the customer would pay under one plan, or null if the deal does not offer that plan.
 // `baseline` is what they pay for power today (monthly), used to show the saving.
-export function planOffer(deal, plan, baseline) {
+export function planOffer(deal, plan, baseline, choice = {}) {
   const saving = (monthly) => Math.round(baseline.monthlyCost - monthly);
 
   if (plan === 'buy' && deal.buyPrice != null) {
@@ -288,6 +289,23 @@ export function planOffer(deal, plan, baseline) {
       upfront: deal.buyPrice,
       totalCost: deal.buyPrice,
       paybackMonths: net > 0 ? Math.ceil(deal.buyPrice / net) : null,
+    };
+  }
+  if (plan === 'lease' && deal.leaseTerms && deal.buyPrice != null) {
+    const options = leaseOptions(deal.buyPrice, deal.leaseTerms);
+    if (options.length === 0) return null;
+    // The headline is the longest plan (smallest monthly payment) unless the customer picked another.
+    const pick = options.find((o) => o.months === choice.months) ?? options[options.length - 1];
+    return {
+      ...baseOffer,
+      plan,
+      upfront: pick.deposit,
+      monthly: pick.monthly,
+      termMonths: pick.months,
+      totalCost: pick.totalPayable,
+      monthlySaving: saving(pick.monthly),
+      leaseOptions: options,
+      cashPrice: deal.buyPrice,
     };
   }
   if (plan === 'lease' && deal.leaseMonthly != null && deal.leaseMonths != null) {
@@ -368,6 +386,6 @@ export function matchDeals(req, deals, plan, baseline) {
     if (!offer) continue;
     matches.push({ deal, specs, fit, offer });
   }
-  const key = (m) => (plan === 'rent' || plan === 'eaas' ? m.offer.monthly : m.offer.totalCost);
+  const key = (m) => (plan === 'buy' ? m.offer.totalCost : m.offer.monthly);
   return matches.sort((a, b) => key(a) - key(b) || a.fit.ratio - b.fit.ratio);
 }

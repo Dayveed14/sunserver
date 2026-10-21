@@ -3,9 +3,12 @@ import { query } from '../db/pool.js';
 const SELECT = `
   SELECT p.id, p.vendor_id, p.category, p.name, p.brand, p.rating, p.system_voltage, p.battery_type,
          p.price, p.in_stock, p.warranty_years, p.description, p.status, p.created_at,
-         v.company_name AS vendor_name, v.verification_status AS vendor_verification
+         v.company_name AS vendor_name, v.verification_status AS vendor_verification,
+         pi.image_id, va.state AS vendor_state, va.area_id AS vendor_area
   FROM products p
-  JOIN vendor_profiles v ON v.user_id = p.vendor_id`;
+  JOIN vendor_profiles v ON v.user_id = p.vendor_id
+  LEFT JOIN product_images pi ON pi.product_id = p.id
+  LEFT JOIN addresses va ON va.user_id = p.vendor_id`;
 
 export const toProduct = (r) => ({
   id: Number(r.id),
@@ -13,6 +16,10 @@ export const toProduct = (r) => ({
   vendorName: r.vendor_name,
   vendorVerified: r.vendor_verification === 'verified',
   vendorVerification: r.vendor_verification,
+  vendorState: r.vendor_state ?? null,
+  vendorArea: r.vendor_area ?? null,
+  imageId: r.image_id == null ? null : Number(r.image_id),
+  imageUrl: r.image_id == null ? null : `/api/images/${r.image_id}`,
   category: r.category,
   name: r.name,
   brand: r.brand,
@@ -82,23 +89,44 @@ export const productsRepo = {
     return res.affectedRows > 0;
   },
 
+  async findPublic(id, { requireVerified }) {
+    const rows = await query(`${SELECT} WHERE p.id = ? AND p.status = 'active' AND ${visibleVendor(requireVerified)} LIMIT 1`, [id]);
+    return rows[0] ? toProduct(rows[0]) : null;
+  },
+
+  // One picture per product.
+  async setImage(productId, imageId) {
+    if (imageId == null) await query('DELETE FROM product_images WHERE product_id = ?', [productId]);
+    else {
+      await query(
+        'INSERT INTO product_images (product_id, image_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE image_id = VALUES(image_id)',
+        [productId, imageId]
+      );
+    }
+  },
+
   async countByVendor(vendorId) {
     const rows = await query("SELECT COUNT(*) AS n FROM products WHERE vendor_id = ? AND status <> 'archived'", [vendorId]);
     return Number(rows[0].n);
   },
 
   // Everything customers can pick from in the DIY builder (the matching rules narrow it down).
-  async listBuyable({ requireVerified }) {
+  async listBuyable({ requireVerified, state }) {
     const rows = await query(
-      `${SELECT} WHERE p.status = 'active' AND p.in_stock = 1 AND ${visibleVendor(requireVerified)} LIMIT 2000`
+      `${SELECT} WHERE p.status = 'active' AND p.in_stock = 1 AND ${visibleVendor(requireVerified)}${state ? ' AND va.state = ?' : ''} LIMIT 2000`,
+      state ? [state] : []
     );
     return rows.map(toProduct);
   },
 
   // The public shop.
-  async listPublic({ requireVerified, category, search, limit }) {
+  async listPublic({ requireVerified, category, search, limit, state }) {
     const where = ["p.status = 'active'", visibleVendor(requireVerified)];
     const params = [];
+    if (state) {
+      where.push('va.state = ?');
+      params.push(state);
+    }
     if (category) {
       where.push('p.category = ?');
       params.push(category);

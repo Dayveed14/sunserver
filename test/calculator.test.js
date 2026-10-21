@@ -105,9 +105,16 @@ describe('costs', () => {
     const expectedLease = (cost * (1 + F.lease.markupPct) - deposit) / F.lease.termMonths;
     assert.ok(Math.abs(r.options.lease.monthly - expectedLease) <= 1);
     assert.equal(r.options.rent.monthly, Math.round(cost * F.rent.monthlyPct));
-    assert.equal(r.options.eaas.upfront, 0);
-    assert.ok(r.options.eaas.perKwh > 0);
-    assert.ok(['buy', 'lease', 'rent', 'eaas'].includes(r.options.lowestTotalKey));
+    assert.ok(['buy', 'lease', 'rent'].includes(r.options.lowestTotalKey));
+  });
+
+  it('offers energy as a service to businesses only, and never suggests it to homes', () => {
+    const business = run({ ...base, segment: 'business', items: base.items ?? [] });
+    assert.equal(business.options.eaas.upfront, 0);
+    assert.ok(business.options.eaas.perKwh > 0);
+    assert.equal(r.options.eaas, undefined); // a home assessment
+    assert.notEqual(r.options.suggested, 'eaas');
+    assert.notEqual(r.options.lowestTotalKey, 'eaas');
   });
 
   it('says so when solar will not save money, instead of pushing an option', () => {

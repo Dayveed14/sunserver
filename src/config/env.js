@@ -48,6 +48,23 @@ export const env = {
   // are verified by hand (verification_status = 'verified') and only those should appear.
   vendorApprovalRequired: process.env.VENDOR_APPROVAL_REQUIRED === '1',
 
+  paystack: { secretKey: process.env.PAYSTACK_SECRET_KEY ?? '' },
+  // Product pictures. Either CLOUDINARY_URL (cloudinary://KEY:SECRET@CLOUD_NAME, as shown on your Cloudinary dashboard)
+  // or the three separate values. With neither, pictures are kept in the database instead (fine for testing).
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME ?? '',
+    apiKey: process.env.CLOUDINARY_API_KEY ?? '',
+    apiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
+    url: process.env.CLOUDINARY_URL ?? '',
+  },
+  // Where order updates go besides the customer and vendor. The logistics partner gets "send a rider" and
+  // pickup/delivery notices; the admin address gets a copy of everything.
+  notify: {
+    logisticsEmail: process.env.LOGISTICS_EMAIL ?? '',
+    adminEmail: process.env.ADMIN_NOTIFY_EMAIL ?? '',
+  },
+  checkout: { pendingExpiryHours: 24, maxQty: 20, maxTotal: 20_000_000, housekeepingMinutes: 5 },
+
   otp: { ttlMinutes: 10, maxAttempts: 5, resendCooldownSeconds: 60, maxSendsPerHour: 5 },
   login: { maxFailures: 5, lockMinutes: 15 },
   reset: { ttlMinutes: 60, cooldownSeconds: 60, maxPerHour: 5 },

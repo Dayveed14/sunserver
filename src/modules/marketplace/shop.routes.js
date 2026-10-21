@@ -1,30 +1,25 @@
 import { Router } from 'express';
-import { env } from '../../config/env.js';
-import { asyncHandler } from '../../lib/httpError.js';
+import { HttpError, asyncHandler } from '../../lib/httpError.js';
 import { shopLimiter } from '../../middleware/rateLimits.js';
-import { dealsRepo, productsRepo } from './index.js';
-import { publicDeal, publicProduct } from './offers.service.js';
-import { dealSpecs, plansOffered } from './matching.js';
+import { shopService as svc } from './index.js';
 
-// The public shop: anyone can browse what vendors sell. Browse only; buying goes through an assessment.
+// The public shop: anyone can browse, but only vendors in the state they pick. Buying needs an account (see orders).
 const router = Router();
 router.use(shopLimiter);
-const opt = { requireVerified: env.vendorApprovalRequired };
-const CATEGORIES = new Set(['panel', 'inverter', 'battery']);
+
+const id = (req) => {
+  if (!/^\d{1,18}$/.test(req.params.id)) throw new HttpError(404, 'NOT_FOUND', 'Not found.');
+  return Number(req.params.id);
+};
+const str = (v, max = 60) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
+// Where the shopper wants it delivered: ?state=lagos&areaId=yaba
+const destination = (req) => (str(req.query.state) && str(req.query.areaId) ? { state: str(req.query.state), areaId: str(req.query.areaId) } : null);
 
 router.get('/products', asyncHandler(async (req, res) => {
-  const category = CATEGORIES.has(req.query.category) ? req.query.category : undefined;
-  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 60) : '';
-  const products = await productsRepo.listPublic({ ...opt, category, search, limit: 100 });
-  res.json({ products: products.map(publicProduct) });
+  res.json(await svc.listProducts({ state: str(req.query.state), category: str(req.query.category), q: str(req.query.q) }));
 }));
-
-router.get('/deals', asyncHandler(async (req, res) => {
-  const deals = await dealsRepo.listActive(opt);
-  const usable = deals.filter((d) => d.vendorVerification !== 'rejected' && !d.items.some((i) => i.productStatus === 'archived'));
-  res.json({
-    deals: usable.map((d) => ({ ...publicDeal(d), specs: dealSpecs(d.items), plans: plansOffered(d), buyPrice: d.buyPrice })),
-  });
-}));
+router.get('/deals', asyncHandler(async (req, res) => res.json(await svc.listDeals({ state: str(req.query.state) }))));
+router.get('/products/:id', asyncHandler(async (req, res) => res.json(await svc.productPage(id(req), destination(req)))));
+router.get('/deals/:id', asyncHandler(async (req, res) => res.json(await svc.dealPage(id(req), destination(req)))));
 
 export default router;

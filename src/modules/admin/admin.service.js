@@ -3,7 +3,7 @@ import { HttpError } from '../../lib/httpError.js';
 const VERIFICATION = ['pending', 'verified', 'rejected'];
 
 // Admin-only rules. Repos and the settings registry are injected so everything here can be tested without a database.
-export function createAdminService({ registry, settingsRepo, auditRepo, usersRepo, vendorsRepo }) {
+export function createAdminService({ registry, settingsRepo, auditRepo, usersRepo, vendorsRepo, afterSettingsSaved = async () => {} }) {
   const notFound = (what) => new HttpError(404, 'NOT_FOUND', `${what} not found.`);
 
   async function listSettings() {
@@ -63,7 +63,10 @@ export function createAdminService({ registry, settingsRepo, auditRepo, usersRep
         diff[k] = { from: before[k], to: after[k] };
       }
       registry.apply(after);
-      if (Object.keys(diff).length) await auditRepo.add({ adminId, action: 'settings.update', target: 'pricing', detail: diff });
+      if (Object.keys(diff).length) {
+        await auditRepo.add({ adminId, action: 'settings.update', target: 'pricing', detail: diff });
+        await afterSettingsSaved(Object.keys(diff)); // e.g. delivery prices to every area must be worked out again
+      }
       return listSettings();
     },
 

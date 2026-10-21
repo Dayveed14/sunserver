@@ -40,12 +40,12 @@ describe('registration + OTP', () => {
     const row = repos.otpRows[0];
     assert.equal(row.code_hash.length, 64);
     assert.ok(!row.code_hash.includes(lastCode()));
-    assert.equal((await repos.usersRepo.findByEmail(signup.email)).email_verified_at, null);
+    assert.equal((await repos.usersRepo.findByEmailRole(signup.email, 'individual')).email_verified_at, null);
   });
 
   it('never stores the password in plain text', async () => {
     await svc.register(signup);
-    const user = await repos.usersRepo.findByEmail(signup.email);
+    const user = await repos.usersRepo.findByEmailRole(signup.email, 'individual');
     assert.notEqual(user.password_hash, signup.password);
     assert.match(user.password_hash, /^\$2[aby]\$/);
   });
@@ -102,12 +102,12 @@ describe('registration + OTP', () => {
     assert.equal(mailbox.length, 1);
   });
 
-  it('refuses a verified email, but lets an unverified one start over with new details', async () => {
+  it('refuses a verified account of the same type, but lets an unverified one start over with new details', async () => {
     await svc.register(signup);
     advance(61 * 1000);
-    await svc.register({ ...signup, fullName: 'Ada O.', role: 'business', companyName: 'Obi Ltd' });
-    const user = await repos.usersRepo.findByEmail(signup.email);
-    assert.equal(user.role, 'business');
+    await svc.register({ ...signup, fullName: 'Ada O.' });
+    const user = await repos.usersRepo.findByEmailRole(signup.email, 'individual');
+    assert.equal(user.full_name, 'Ada O.');
     await svc.verifyEmail({ email: signup.email, code: lastCode() });
     assert.equal(await code(svc.register(signup)), 'EMAIL_TAKEN');
   });

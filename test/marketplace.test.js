@@ -202,8 +202,8 @@ describe('product and deal validation', () => {
   it('needs at least one price on a deal', () => {
     const base = { title: 'Starter', items: [{ productId: 1, qty: 2 }, { productId: 2, qty: 1 }, { productId: 3, qty: 1 }] };
     assert.equal(dealSchema.safeParse(base).success, false);
-    const parsed = dealSchema.parse({ ...base, lease: { deposit: 0, monthly: 30000, months: 24 } });
-    assert.equal(parsed.leaseMonthly, 30000);
+    const parsed = dealSchema.parse({ ...base, rentMonthly: 40000 });
+    assert.equal(parsed.rentMonthly, 40000);
     assert.equal(parsed.buyPrice, null);
   });
 });
@@ -291,22 +291,24 @@ describe('customer offers and requests', () => {
   };
 
   it('shows only the owner their own assessment', async () => {
-    await assert.rejects(svc.getOffers(99, 10, 'buy'), (e) => e.status === 404);
+    await assert.rejects(svc.getOffers(99, 10, 'buy', 'individual'), (e) => e.status === 404);
   });
 
   it('returns deals for the plan and DIY options for buying, hiding rejected vendors', async () => {
     const parts = await seedParts();
     await seedDeal();
-    const buy = await svc.getOffers(7, 10, 'buy');
+    const buy = await svc.getOffers(7, 10, 'buy', 'individual');
     assert.equal(buy.deals.length, 1);
-    assert.deepEqual(buy.dealCounts, { buy: 1, lease: 1, rent: 0, eaas: 0 });
+    assert.deepEqual(buy.dealCounts, { buy: 1, lease: 1, rent: 0 }); // no energy as a service for individuals
     assert.equal(buy.diy.panels.length, 2); // the 750W panel and the deal's 550W panel
     assert.equal(buy.diy.batteries.length, 2); // vendor 2's battery and the deal's; the rejected vendor's is hidden
     assert.ok(!buy.diy.batteries.some((b) => b.id === parts.hidden));
-    const lease = await svc.getOffers(7, 10, 'lease');
+    const lease = await svc.getOffers(7, 10, 'lease', 'individual');
     assert.equal(lease.diy, undefined);
     assert.equal(lease.deals[0].offer.monthlySaving, 70000);
-    await assert.rejects(svc.getOffers(7, 10, 'swap'), (e) => e.code === 'VALIDATION_ERROR');
+    await assert.rejects(svc.getOffers(7, 10, 'swap', 'individual'), (e) => e.code === 'VALIDATION_ERROR');
+    await assert.rejects(svc.getOffers(7, 10, 'eaas', 'individual'), (e) => e.code === 'NOT_AVAILABLE');
+    assert.ok((await svc.getOffers(7, 10, 'buy', 'business')).dealCounts.eaas !== undefined); // businesses still see it
   });
 
   it('splits a DIY order into one request per vendor', async () => {

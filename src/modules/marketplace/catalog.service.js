@@ -1,10 +1,11 @@
 import { HttpError } from '../../lib/httpError.js';
 import { EAAS_RULES, computeEaas, componentsFromItems } from './eaas.js';
+import { leaseOptions } from './lease.js';
 import { checkDealComposition, dealSpecs, plansOffered } from './matching.js';
 
 // Vendor-side rules: what a vendor may list and how a deal must be put together.
 // Repos are injected so the rules can be tested without a database.
-export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, vendorsRepo }) {
+export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, vendorsRepo, imagesRepo = null }) {
   const notFound = (what) => new HttpError(404, 'NOT_FOUND', `${what} not found.`);
 
   // Turns the vendor's picks into full items, making sure every product is theirs and still listed.
@@ -33,6 +34,14 @@ export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, ve
     return resolved;
   }
 
+  // A vendor can only attach a picture they uploaded themselves.
+  async function checkImage(vendorId, imageId) {
+    if (imageId == null || !imagesRepo) return;
+    if (!(await imagesRepo.ownedBy(imageId, vendorId))) {
+      throw new HttpError(400, 'VALIDATION_ERROR', 'That picture was not found. Upload it again.', { fields: { imageId: 'Upload the picture again.' } });
+    }
+  }
+
   const withSpecs = (deal) => ({ ...deal, specs: dealSpecs(deal.items), plans: plansOffered(deal) });
 
   return {
@@ -49,7 +58,9 @@ export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, ve
     listProducts: (vendorId) => productsRepo.listByVendor(vendorId),
 
     async createProduct(vendorId, data) {
+      await checkImage(vendorId, data.imageId);
       const id = await productsRepo.create(vendorId, data);
+      if (data.imageId != null) await productsRepo.setImage?.(id, data.imageId);
       return productsRepo.findOwned(id, vendorId);
     },
 
@@ -62,7 +73,9 @@ export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, ve
           fields: { category: 'Type cannot be changed.' },
         });
       }
+      await checkImage(vendorId, data.imageId);
       await productsRepo.update(id, vendorId, data);
+      if (data.imageId !== undefined) await productsRepo.setImage?.(id, data.imageId);
       return productsRepo.findOwned(id, vendorId);
     },
 
@@ -76,14 +89,18 @@ export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, ve
 
     async createDeal(vendorId, data) {
       const items = await resolveItems(vendorId, data.items);
+      await checkImage(vendorId, data.imageId);
       const id = await dealsRepo.create(vendorId, { ...data, items });
+      if (data.imageId != null) await dealsRepo.setImage?.(id, data.imageId);
       return withSpecs(await dealsRepo.findOwned(id, vendorId));
     },
 
     async updateDeal(vendorId, id, data) {
       if (!(await dealsRepo.findOwned(id, vendorId))) throw notFound('Deal');
       const items = await resolveItems(vendorId, data.items);
+      await checkImage(vendorId, data.imageId);
       await dealsRepo.update(id, vendorId, { ...data, items });
+      await dealsRepo.setImage?.(id, data.imageId ?? null);
       return withSpecs(await dealsRepo.findOwned(id, vendorId));
     },
 
@@ -120,6 +137,11 @@ export function createCatalogService({ productsRepo, dealsRepo, requestsRepo, ve
       };
       return { home: computeEaas({ ...terms, segment: 'home' }), business: computeEaas({ ...terms, segment: 'business' }) };
     },
+
+    // What each plan length would cost, shown to a vendor while they set up a lease.
+    leasePreview: (data) => ({
+      options: leaseOptions(data.buyPrice, { depositPct: data.lease.depositPct / 100, tenors: data.lease.tenors }),
+    }),
 
     eaasRules: () => ({
       annualReturn: EAAS_RULES.annualReturn,

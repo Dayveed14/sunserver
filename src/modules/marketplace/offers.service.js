@@ -1,3 +1,4 @@
+import { eaasOffered } from '../../config/launch.js';
 import { HttpError } from '../../lib/httpError.js';
 import {
   PLANS,
@@ -30,14 +31,16 @@ export const publicProduct = (p) => ({
   inStock: p.inStock,
   warrantyYears: p.warrantyYears,
   description: p.description,
-  vendor: { id: p.vendorId, name: p.vendorName, verified: p.vendorVerified },
+  imageUrl: p.imageUrl ?? null,
+  vendor: { id: p.vendorId, name: p.vendorName, verified: p.vendorVerified, state: p.vendorState ?? null },
 });
 
 export const publicDeal = (deal) => ({
   id: deal.id,
   title: deal.title,
   description: deal.description,
-  vendor: { id: deal.vendorId, name: deal.vendorName, verified: deal.vendorVerified },
+  imageUrl: deal.imageUrl ?? null,
+  vendor: { id: deal.vendorId, name: deal.vendorName, verified: deal.vendorVerified, state: deal.vendorState ?? null },
   installationIncluded: deal.installationIncluded,
   warrantyYears: deal.warrantyYears,
   items: deal.items.map((i) => ({
@@ -83,13 +86,14 @@ export function createOffersService({ productsRepo, dealsRepo, requestsRepo, ass
   }
 
   return {
-    async getOffers(userId, assessmentId, plan) {
+    async getOffers(userId, assessmentId, plan, role) {
       if (!PLANS.includes(plan)) throw bad('VALIDATION_ERROR', 'Choose buy, lease, rent or energy as a service.');
+      if (plan === 'eaas' && !eaasOffered(role)) throw bad('NOT_AVAILABLE', 'Energy as a service is offered to business accounts only.');
       const { result, requirement, baseline } = await loadAssessment(userId, assessmentId);
       const deals = (await dealsRepo.listActive(verifiedOpt)).filter(visible);
 
       const counts = {};
-      for (const p of PLANS) counts[p] = matchDeals(requirement, deals, p, baseline).length;
+      for (const p of PLANS) if (p !== 'eaas' || eaasOffered(role)) counts[p] = matchDeals(requirement, deals, p, baseline).length;
       const matches = matchDeals(requirement, deals, plan, baseline);
 
       const out = {
@@ -117,7 +121,8 @@ export function createOffersService({ productsRepo, dealsRepo, requestsRepo, ass
 
     quoteDiy: quoteDiyFor,
 
-    async createRequests(userId, assessmentId, body) {
+    async createRequests(userId, assessmentId, body, role) {
+      if (body.plan === 'eaas' && !eaasOffered(role)) throw bad('NOT_AVAILABLE', 'Energy as a service is offered to business accounts only.');
       const { result, requirement, baseline } = await loadAssessment(userId, assessmentId);
       const needs = {
         segment: result.segment,
@@ -132,7 +137,10 @@ export function createOffersService({ productsRepo, dealsRepo, requestsRepo, ass
         const deal = await dealsRepo.findActive(body.dealId, verifiedOpt);
         if (!deal || !visible(deal)) throw new HttpError(404, 'NOT_FOUND', 'That deal is no longer available.');
         const specs = dealSpecs(deal.items);
-        const offer = planOffer(deal, body.plan, baseline);
+        const offer = planOffer(deal, body.plan, baseline, { months: body.months });
+        if (body.plan === 'lease' && body.months && offer && offer.termMonths !== body.months) {
+          throw bad('VALIDATION_ERROR', 'That payment plan is not offered on this deal.');
+        }
         if (!dealFit(requirement, specs) || !offer) {
           throw bad('NOT_A_MATCH', 'That deal does not fit this assessment or plan any more.');
         }

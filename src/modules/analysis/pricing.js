@@ -63,7 +63,7 @@ export const ASSUMPTIONS = {
   },
 
   financing: {
-    lease: { termMonths: 36, markupPct: 0.25, depositPct: 0.15 }, // you own it at the end
+    lease: { termMonths: 12, markupPct: 0.25, depositPct: 0.3 }, // pay small small: deposit then 12 months; you own it at the end (vendors also offer 3, 4 and 6 months)
     rent: { monthlyPct: 0.035 }, // of system cost per month; maintenance included, cancel any time
     // Pay monthly, provider owns and runs it. Priced by marketplace/eaas.js; installation is spread over the monthly
     // payments here so the card can honestly say "no upfront payment". Vendors may offer paying it upfront for less.

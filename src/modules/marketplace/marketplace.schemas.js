@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { EAAS_RULES, validateEaasTerms } from './eaas.js';
+import { LEASE_RULES, validateLeaseTerms } from './lease.js';
 
 const naira = z.number({ invalid_type_error: 'Enter an amount in naira.' }).int('Use a whole number of naira.').min(1000, 'That looks too low.').max(2_000_000_000, 'That looks too high.');
 const optionalText = (max) =>
@@ -19,6 +20,7 @@ export const productSchema = z
     warrantyYears: years,
     description: optionalText(500),
     status: z.enum(['active', 'hidden']).default('active'),
+    imageId: z.number().int().positive().nullable().optional(),
   })
   .superRefine((p, ctx) => {
     const bad = (path, message) => ctx.addIssue({ code: 'custom', path: [path], message });
@@ -46,11 +48,16 @@ const itemSchema = z.object({
   qty: z.number().int().min(1, 'At least 1.').max(500, 'That is a lot. Check the quantity.'),
 });
 
-const leaseSchema = z.object({
-  deposit: z.number().int().min(0).max(2_000_000_000),
-  monthly: naira,
-  months: z.number().int().min(6, 'At least 6 months.').max(120),
-});
+const leaseSchema = z
+  .object({
+    depositPct: z.number({ invalid_type_error: 'Enter a percentage.' }),
+    tenors: z.array(z.number().int()).max(4),
+  })
+  .superRefine((l, ctx) => {
+    const errors = validateLeaseTerms({ depositPct: l.depositPct / 100, tenors: l.tenors }, LEASE_RULES);
+    if (errors.depositPct) ctx.addIssue({ code: 'custom', path: ['depositPct'], message: errors.depositPct });
+    if (errors.tenors) ctx.addIssue({ code: 'custom', path: ['tenors'], message: errors.tenors });
+  });
 export const eaasSchema = z
   .object({
     tenorMonths: z.number({ invalid_type_error: 'Enter a number of months.' }).int('Use whole months.'),
@@ -75,6 +82,7 @@ export const dealSchema = z
     warrantyYears: years,
     buyPrice: naira.nullable().optional(),
     lease: leaseSchema.nullable().optional(),
+    imageId: z.number().int().positive().nullable().optional(),
     rentMonthly: naira.nullable().optional(),
     eaas: eaasSchema.nullable().optional(),
     status: z.enum(['draft', 'active', 'paused']).default('draft'),
@@ -82,6 +90,9 @@ export const dealSchema = z
   .superRefine((d, ctx) => {
     const ids = d.items.map((i) => i.productId);
     if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Each product can only appear once.' });
+    if (d.lease && d.buyPrice == null) {
+      ctx.addIssue({ code: 'custom', path: ['lease', 'depositPct'], message: 'Lease is priced from the buy price. Set a buy price first.' });
+    }
     if (d.buyPrice == null && !d.lease && d.rentMonthly == null && !d.eaas) {
       ctx.addIssue({ code: 'custom', path: ['plans'], message: 'Set a price for at least one way to pay: buy, lease, rent or energy as a service.' });
     }
@@ -93,9 +104,12 @@ export const dealSchema = z
     installationIncluded: d.installationIncluded,
     warrantyYears: d.warrantyYears,
     buyPrice: d.buyPrice ?? null,
-    leaseDeposit: d.lease?.deposit ?? null,
-    leaseMonthly: d.lease?.monthly ?? null,
-    leaseMonths: d.lease?.months ?? null,
+    // Lease is priced from the buy price and the plan lengths; the old typed-in lease fields are no longer used.
+    leaseDeposit: null,
+    leaseMonthly: null,
+    leaseMonths: null,
+    leaseTerms: d.lease ? { depositPct: Math.round(d.lease.depositPct * 100) / 10000, tenors: [...new Set(d.lease.tenors)].sort((a, b) => a - b) } : null,
+    imageId: d.imageId ?? null,
     rentMonthly: d.rentMonthly ?? null,
     // Energy as a service is priced from these terms; the old typed-in monthly fee is no longer used.
     eaasMonthly: null,
@@ -123,6 +137,7 @@ export const createRequestSchema = z
     kind: z.enum(['deal', 'diy']),
     dealId: z.number().int().positive().optional(),
     plan: z.enum(['buy', 'lease', 'rent', 'eaas']).optional(),
+    months: z.number().int().min(1).max(120).optional(),
     items: z.array(itemSchema).max(10).optional(),
     message: optionalText(500),
   })
@@ -135,3 +150,5 @@ export const eaasPreviewSchema = z.object({
   items: z.array(itemSchema).min(3).max(10),
   eaas: eaasSchema,
 });
+
+export const leasePreviewSchema = z.object({ buyPrice: naira, lease: leaseSchema });

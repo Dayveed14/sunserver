@@ -53,5 +53,25 @@ export function createMailer({ apiKey, from, isProd }) {
       if (error) throw new Error(error.message ?? 'Resend rejected the email');
       return { delivered: true };
     },
+
+    // Order and delivery updates. `lines` are short paragraphs; `button` is an optional { label, url }.
+    async sendNotification({ to, subject, heading, lines = [], button }) {
+      const text = `${heading}\n\n${lines.join('\n')}${button ? `\n\n${button.label}: ${button.url}` : ''}\n`;
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#10141f">
+          <h2 style="font-size:20px;margin:0 0 16px">${escapeHtml(heading)}</h2>
+          ${lines.map((l) => `<p style="font-size:15px;line-height:1.55;margin:0 0 12px">${escapeHtml(l)}</p>`).join('')}
+          ${button ? `<p style="margin:20px 0 0"><a href="${escapeHtml(button.url)}" style="background:#b4700a;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">${escapeHtml(button.label)}</a></p>` : ''}
+          <p style="font-size:12px;color:#5b6172;margin:24px 0 0">Sunledger</p>
+        </div>`;
+      if (!client) {
+        if (isProd) throw new Error('RESEND_API_KEY is not configured');
+        console.log(`[mail:dev] To ${to}: ${subject}\n  ${lines.join('\n  ')}${button ? `\n  ${button.label}: ${button.url}` : ''}`);
+        return { delivered: false };
+      }
+      const { error } = await client.emails.send({ from, to: Array.isArray(to) ? to : [to], subject, html, text });
+      if (error) throw new Error(error.message ?? 'Resend rejected the email');
+      return { delivered: true };
+    },
   };
 }

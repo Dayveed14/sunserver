@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { HttpError, asyncHandler } from '../../lib/httpError.js';
 import { authenticate, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
+import { requireVendorActive } from '../../middleware/vendorGate.js';
+import { registrationFee } from '../vendors/index.js';
 import { catalogService as svc } from './index.js';
-import { dealSchema, dealStatusSchema, eaasPreviewSchema, productSchema, requestStatusSchema } from './marketplace.schemas.js';
+import { dealSchema, dealStatusSchema, eaasPreviewSchema, leasePreviewSchema, productSchema, requestStatusSchema } from './marketplace.schemas.js';
 
 const router = Router();
 router.use(authenticate, requireRole('vendor'));
@@ -13,7 +15,9 @@ const id = (req) => {
   return Number(req.params.id);
 };
 
-router.get('/summary', asyncHandler(async (req, res) => res.json(await svc.summary(req.user.id))));
+// The summary stays open to unpaid vendors: it tells the dashboard whether to show the "pay to start" screen.
+router.get('/summary', asyncHandler(async (req, res) => res.json({ ...(await svc.summary(req.user.id)), registrationFee: await registrationFee.status(req.user.id) })));
+router.use(requireVendorActive);
 
 // ---- Products ----
 router.get('/products', asyncHandler(async (req, res) => res.json({ products: await svc.listProducts(req.user.id) })));
@@ -43,6 +47,9 @@ router.delete('/deals/:id', asyncHandler(async (req, res) => {
   await svc.archiveDeal(req.user.id, id(req));
   res.status(204).end();
 }));
+
+// ---- Lease pricing ----
+router.post('/lease-preview', validate(leasePreviewSchema), (req, res) => res.json(svc.leasePreview(req.valid)));
 
 // ---- Energy as a service pricing ----
 router.get('/eaas-rules', (req, res) => res.json(svc.eaasRules()));

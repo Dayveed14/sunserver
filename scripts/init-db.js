@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import mysql from 'mysql2/promise';
+import { migrate } from './migrate.js';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'sql');
 const files = ['schema.sql', ...fs.readdirSync(dir).filter((f) => f.endsWith('.sql') && f !== 'schema.sql').sort()];
@@ -22,6 +23,7 @@ try {
     await conn.query(fs.readFileSync(path.join(dir, file), 'utf8'));
     console.log(`Applied ${file}`);
   }
+  await migrate(conn, process.env.DB_NAME ?? 'sunledger');
   console.log('Database ready.');
 } finally {
   await conn.end();
