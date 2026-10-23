@@ -8,7 +8,7 @@ export function parseCloudinaryUrl(value) {
   return m ? { apiKey: m[1], apiSecret: m[2], cloudName: m[3] } : null;
 }
 
-export function createCloudinary({ cloudName, apiKey, apiSecret, folder = 'sunledger', fetchImpl = fetch, timeoutMs = 20000, now = () => Date.now() }) {
+export function createCloudinary({ cloudName, apiKey, apiSecret, folder = 'solalium', fetchImpl = fetch, timeoutMs = 20000, now = () => Date.now() }) {
   const enabled = Boolean(cloudName && apiKey && apiSecret);
   const sign = (params) => {
     const toSign = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join('&');

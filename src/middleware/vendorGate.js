@@ -6,7 +6,7 @@ import { registrationFeeService } from '../services/index.js';
 export async function requireVendorActive(req, res, next) {
   try {
     if (!(await registrationFeeService.isActive(req.user.id))) {
-      throw new HttpError(402, 'REGISTRATION_FEE_REQUIRED', 'Pay the one-time registration fee to start selling on Sunledger.');
+      throw new HttpError(402, 'REGISTRATION_FEE_REQUIRED', 'Pay the one-time registration fee to start selling on Solalium.');
     }
     next();
   } catch (err) {

@@ -1,6 +1,8 @@
+import { PRODUCT_CATEGORIES } from '../src/utils/productCategories.js';
+
 // Changes MySQL cannot do idempotently in plain SQL (it has no "ADD COLUMN IF NOT EXISTS" or "DROP INDEX IF EXISTS").
 // init-db runs this after the .sql files. Every step checks first, so it is safe to run again.
-export async function migrate(conn, database = 'sunledger') {
+export async function migrate(conn, database = 'solalium') {
   const indexes = async (table) => {
     const [rows] = await conn.query(
       'SELECT index_name AS name, GROUP_CONCAT(column_name ORDER BY seq_in_index) AS cols FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? GROUP BY index_name',
@@ -45,4 +47,12 @@ export async function migrate(conn, database = 'sunledger') {
     await conn.query('ALTER TABLE images MODIFY data MEDIUMBLOB NULL');
     console.log('Migrated: images.data may now be empty (Cloudinary).');
   }
+
+  // More kinds of solar product (controllers, cables, pumps, kits ...). New values are only ever added at the end of the list.
+  const [catCol] = await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'products' AND column_name = 'category'", [database]);
+  if (catCol[0] && !catCol[0].t.includes("'kit'")) {
+    await conn.query(`ALTER TABLE products MODIFY COLUMN category ENUM(${PRODUCT_CATEGORIES.map((c) => `'${c}'`).join(',')}) NOT NULL`);
+    console.log('Migrated: products.category now accepts all solar product types.');
+  }
 }
+

@@ -1,5 +1,6 @@
 import { eaasOffered } from '../config/launch.js';
 import { HttpError } from '../lib/httpError.js';
+import { isCore } from '../utils/productCategories.js';
 import {
   PLANS,
   dealFit,
@@ -108,7 +109,7 @@ export function createOffersService({ productsModel, dealsModel, requestsModel, 
 
       // Parts-by-parts is only meaningful when buying outright.
       if (plan === 'buy') {
-        const products = (await productsModel.listBuyable(verifiedOpt)).filter(visible);
+        const products = (await productsModel.listBuyable(verifiedOpt)).filter(visible).filter((p) => isCore(p.category));
         const opts = diyOptions(requirement, products);
         out.diy = {
           panels: opts.panels.map((o) => ({ ...publicProduct(o.product), qty: o.qty })),

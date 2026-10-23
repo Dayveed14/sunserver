@@ -1,18 +1,19 @@
 import { z } from 'zod';
+import { CATEGORY_SPECS, PRODUCT_CATEGORIES, isCore } from '../utils/productCategories.js';
 import { EAAS_RULES, validateEaasTerms } from '../utils/eaas.js';
 import { LEASE_RULES, validateLeaseTerms } from '../utils/lease.js';
 
-const naira = z.number({ invalid_type_error: 'Enter an amount in naira.' }).int('Use a whole number of naira.').min(1000, 'That looks too low.').max(2_000_000_000, 'That looks too high.');
+const naira = z.number({ invalid_type_error: 'Enter an amount in naira.' }).int('Use a whole number of naira.').min(50, 'That looks too low.').max(2_000_000_000, 'That looks too high.');
 const optionalText = (max) =>
   z.string().trim().max(max, `Keep this under ${max} characters.`).optional().nullable().transform((v) => (v ? v : null));
 const years = z.number().int().min(0).max(25).optional().nullable().transform((v) => v ?? null);
 
 export const productSchema = z
   .object({
-    category: z.enum(['panel', 'inverter', 'battery'], { errorMap: () => ({ message: 'Choose a type.' }) }),
+    category: z.enum(PRODUCT_CATEGORIES, { errorMap: () => ({ message: 'Choose a type.' }) }),
     name: z.string().trim().min(2, 'Give it a name.').max(120),
     brand: optionalText(60),
-    rating: z.number({ invalid_type_error: 'Enter a number.' }).positive('Enter a number above zero.'),
+    rating: z.number({ invalid_type_error: 'Enter a number.' }).optional().nullable(),
     systemVoltage: z.number().int().optional().nullable(),
     batteryType: z.enum(['lithium', 'gel', 'tubular', 'agm']).optional().nullable(),
     price: naira,
@@ -24,24 +25,35 @@ export const productSchema = z
   })
   .superRefine((p, ctx) => {
     const bad = (path, message) => ctx.addIssue({ code: 'custom', path: [path], message });
-    if (p.category === 'panel') {
-      if (!Number.isInteger(p.rating) || p.rating < 50 || p.rating > 1000) bad('rating', 'Panel size is in watts, between 50 and 1000 (for example 550).');
+    const spec = CATEGORY_SPECS[p.category];
+    if (!spec) return;
+    // Panels, inverters and batteries drive the energy sizing, so their prices must look real.
+    if (isCore(p.category) && p.price < 1000) bad('price', 'That looks too low.');
+
+    // The main size (watts, kVA, kWh, amps ...), when this kind of product has one.
+    const r = spec.rating;
+    const given = p.rating !== undefined && p.rating !== null;
+    if (r.mode === 'required' && !given) bad('rating', 'Enter a number.');
+    if (r.mode !== 'none' && given) {
+      if (p.rating <= 0) bad('rating', 'Enter a number above zero.');
+      else if (r.integer && !Number.isInteger(p.rating)) bad('rating', `Use a whole number (${r.unit}).`);
+      else if (p.rating < r.min || p.rating > r.max) bad('rating', `${r.label.replace(/ \(.*\)$/, '')} should be between ${r.min} and ${r.max} ${r.unit}.`);
     }
-    if (p.category === 'inverter') {
-      if (p.rating < 0.3 || p.rating > 50) bad('rating', 'Inverter size is in kVA, between 0.3 and 50 (for example 1.5).');
-      if (![12, 24, 48].includes(p.systemVoltage)) bad('systemVoltage', 'Choose 12V, 24V or 48V.');
-    }
-    if (p.category === 'battery') {
-      if (p.rating < 0.5 || p.rating > 200) bad('rating', 'Battery size is usable kWh per unit, between 0.5 and 200 (for example 2.4).');
-      if (![12, 24, 48].includes(p.systemVoltage)) bad('systemVoltage', 'Choose 12V, 24V or 48V.');
-    }
+
+    // The battery voltage it works with.
+    if (spec.voltage === 'required' && ![12, 24, 48].includes(p.systemVoltage)) bad('systemVoltage', 'Choose 12V, 24V or 48V.');
+    if (spec.voltage === 'optional' && p.systemVoltage != null && ![12, 24, 48].includes(p.systemVoltage)) bad('systemVoltage', 'Choose 12V, 24V or 48V.');
   })
-  .transform((p) => ({
-    ...p,
-    rating: Math.round(p.rating * 100) / 100,
-    systemVoltage: p.category === 'panel' ? null : p.systemVoltage,
-    batteryType: p.category === 'battery' ? p.batteryType ?? null : null,
-  }));
+  .transform((p) => {
+    const spec = CATEGORY_SPECS[p.category];
+    return {
+      ...p,
+      // Products with no size are stored with 0 so the database column (which is never empty) stays valid.
+      rating: spec.rating.mode === 'none' || p.rating == null ? 0 : Math.round(p.rating * 100) / 100,
+      systemVoltage: spec.voltage === 'none' ? null : p.systemVoltage ?? null,
+      batteryType: p.category === 'battery' ? p.batteryType ?? null : null,
+    };
+  });
 
 const itemSchema = z.object({
   productId: z.number().int().positive(),

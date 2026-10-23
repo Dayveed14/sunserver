@@ -1,6 +1,6 @@
 import { appliance as a, v } from './helpers.js';
 
-// Devices and wattages from David's field research spreadsheet (Sunledger_Appliance_spreadsheet.xlsx),
+// Devices and wattages from David's field research spreadsheet (Solalium_Appliance_spreadsheet.xlsx),
 // added to the BUSINESS catalogue: salons, print shops, tailors, small labs and workshops.
 //
 // How the spreadsheet was merged:

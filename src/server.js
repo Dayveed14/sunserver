@@ -13,5 +13,5 @@ try {
 const app = createApp();
 startHousekeeping();
 app.listen(env.port, () => {
-  console.log(`Sunledger API listening on http://localhost:${env.port} (${env.nodeEnv})`);
+  console.log(`Solalium API listening on http://localhost:${env.port} (${env.nodeEnv})`);
 });

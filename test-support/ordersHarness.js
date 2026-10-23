@@ -49,7 +49,7 @@ export function createHarness({ now = () => new Date('2026-10-19T09:00:00Z'), re
   const sent = [];
   const mailer = { async sendNotification(m) { sent.push(m); } };
   const tokens = createDispatchTokens('dispatch-secret-dispatch-secret-1234');
-  const notifier = createNotifier({ mailer, config: { logisticsEmail: 'rider@logistics.ng', adminEmail: 'admin@sunledger.ng', appUrl: 'http://localhost:5173' }, tokens, now });
+  const notifier = createNotifier({ mailer, config: { logisticsEmail: 'rider@logistics.ng', adminEmail: 'admin@solalium.ng', appUrl: 'http://localhost:5173' }, tokens, now });
   const config = { requireVerified, maxQty: 20, maxTotal: 20_000_000, callbackUrl: 'http://localhost:5173/checkout/return', pendingExpiryHours: 24, pollMs: 2 };
   const service = createOrdersService({ productsModel, dealsModel, ordersModel, feesService, paystack, notifier, config, ...(fees ? { feeRules: fees } : {}), now: () => clock.t });
 

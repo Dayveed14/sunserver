@@ -27,7 +27,7 @@ const DEFS = [
   ['leaseDepositPct', 'Lease deposit', 'Lease and rent (free assessment)', 'pct', 'A', ['financing', 'lease', 'depositPct'], 0, 0.6, 'of system cost'],
   ['rentMonthlyPct', 'Rent per month', 'Lease and rent (free assessment)', 'pct', 'A', ['financing', 'rent', 'monthlyPct'], 0.005, 0.15, 'of system cost'],
   // Energy as a service (applies to vendors and the free assessment)
-  ['eaasPlatformFee', 'Sunledger fee', 'Energy as a service', 'pct', 'E', ['platformFeePct'], 0, 0.25, 'of the monthly price'],
+  ['eaasPlatformFee', 'Solalium fee', 'Energy as a service', 'pct', 'E', ['platformFeePct'], 0, 0.25, 'of the monthly price'],
   ['eaasReturnMin', 'Lowest return a vendor may set', 'Energy as a service', 'pct', 'E', ['annualReturn', 'min'], 0, 0.6, 'a year'],
   ['eaasReturnMax', 'Highest return a vendor may set', 'Energy as a service', 'pct', 'E', ['annualReturn', 'max'], 0.02, 0.8, 'a year'],
   ['eaasReturnDefault', 'Return used in the free assessment', 'Energy as a service', 'pct', 'E', ['annualReturn', 'default'], 0, 0.6, 'a year'],
@@ -39,10 +39,10 @@ const DEFS = [
   ['eaasRiskBusiness', 'Risk allowance, businesses', 'Energy as a service', 'pct', 'E', ['riskPct', 'business'], 0, 0.4, 'of cost'],
   ['eaasResidualHaircut', 'Resale value not counted on', 'Energy as a service', 'pct', 'E', ['residualHaircut'], 0, 1, 'of leftover value'],
   ['eaasDepositMonths', 'Refundable deposit', 'Energy as a service', 'number', 'E', ['depositMonths'], 0, 3, 'months of payments'],
-  // How Sunledger earns
-  ['vendorRegistrationFee', 'Vendor registration fee (one-time)', 'Sunledger fees', 'naira', 'F', ['vendorRegistrationFee'], 0, 5000000, '₦ once per vendor, when registration is switched to paid'],
-  ['customerServicePct', 'Service charge added for the customer', 'Sunledger fees', 'pct', 'F', ['customerServicePct'], 0, 0.3, 'of the items bought'],
-  ['vendorCommissionPct', 'Platform fee held back from the vendor', 'Sunledger fees', 'pct', 'F', ['vendorCommissionPct'], 0, 0.3, 'of the items sold'],
+  // How Solalium earns
+  ['vendorRegistrationFee', 'Vendor registration fee (one-time)', 'Solalium fees', 'naira', 'F', ['vendorRegistrationFee'], 0, 5000000, '₦ once per vendor, when registration is switched to paid'],
+  ['customerServicePct', 'Service charge added for the customer', 'Solalium fees', 'pct', 'F', ['customerServicePct'], 0, 0.3, 'of the items bought'],
+  ['vendorCommissionPct', 'Platform fee held back from the vendor', 'Solalium fees', 'pct', 'F', ['vendorCommissionPct'], 0, 0.3, 'of the items sold'],
   // Lease to own: pay small small
   ['leaseMarkup3', 'Mark-up on a 3-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '3'], 0, 1, 'over the cash price'],
   ['leaseMarkup4', 'Mark-up on a 4-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '4'], 0, 1, 'over the cash price'],

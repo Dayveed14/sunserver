@@ -16,6 +16,7 @@ const conn = await mysql.createConnection({
   user: process.env.DB_USER ?? 'root',
   password: process.env.DB_PASSWORD ?? '',
   multipleStatements: true,
+  ssl: ((process.env.DB_SSL ? process.env.DB_SSL === 'true' : !['127.0.0.1', 'localhost', '::1'].includes(process.env.DB_HOST ?? '127.0.0.1'))) ? { minVersion: 'TLSv1.2' } : undefined,
 });
 
 try {
@@ -23,7 +24,7 @@ try {
     await conn.query(fs.readFileSync(path.join(dir, file), 'utf8'));
     console.log(`Applied ${file}`);
   }
-  await migrate(conn, process.env.DB_NAME ?? 'sunledger');
+  await migrate(conn, process.env.DB_NAME ?? 'solalium');
   console.log('Database ready.');
 } finally {
   await conn.end();

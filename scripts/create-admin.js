@@ -6,7 +6,7 @@ import { pool, query } from '../src/db/pool.js';
 
 const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
 const password = process.env.ADMIN_PASSWORD;
-const name = process.env.ADMIN_NAME?.trim() || 'Sunledger Admin';
+const name = process.env.ADMIN_NAME?.trim() || 'Solalium Admin';
 
 if (!email || !password) {
   console.error('Set ADMIN_EMAIL and ADMIN_PASSWORD (and optionally ADMIN_NAME).');

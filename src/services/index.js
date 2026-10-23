@@ -75,7 +75,7 @@ export const authService = createAuthService({
     bcryptRounds: env.bcryptRounds,
     vendorRegistrationFeeRequired: VENDOR_REGISTRATION_FEE_REQUIRED,
     // Separate key from the JWT secret so one can be rotated without touching the other.
-    otpSecret: crypto.createHmac('sha256', env.jwtSecret).update('sunledger-otp').digest('hex'),
+    otpSecret: crypto.createHmac('sha256', env.jwtSecret).update('solalium-otp').digest('hex'),
     otp: env.otp,
     login: env.login,
     reset: env.reset,

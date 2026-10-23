@@ -83,7 +83,7 @@ export function createNotifier({ mailer, config, tokens, now = () => new Date() 
       await send(ctx.vendor.email, {
         subject: `New order ${d.ref} to accept`,
         heading: 'You have a new paid order',
-        lines: [`Order ${d.ref}: ${d.shortItems}.`, `Items ${naira(ctx.vo.subtotal)}; after the Sunledger platform fee you receive ${naira(Number(ctx.vo.subtotal) - Number(ctx.vo.commission ?? 0))}. It goes to ${d.to}.`, 'Please accept it so a rider can be sent and the customer knows it is on the way.'],
+        lines: [`Order ${d.ref}: ${d.shortItems}.`, `Items ${naira(ctx.vo.subtotal)}; after the Solalium platform fee you receive ${naira(Number(ctx.vo.subtotal) - Number(ctx.vo.commission ?? 0))}. It goes to ${d.to}.`, 'Please accept it so a rider can be sent and the customer knows it is on the way.'],
         button: { label: 'Open orders', url: link('/app/orders') },
       });
     },

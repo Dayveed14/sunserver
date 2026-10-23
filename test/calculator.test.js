@@ -118,7 +118,7 @@ describe('costs', () => {
   });
 
   it('says so when solar will not save money, instead of pushing an option', () => {
-    // Very cheap power: nothing Sunledger sells can beat it, so the result must say so.
+    // Very cheap power: nothing Solalium sells can beat it, so the result must say so.
     const cheapPower = {
       ...ASSUMPTIONS,
       fuelPricePerLitre: 1,

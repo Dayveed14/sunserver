@@ -36,12 +36,14 @@ export const env = {
     port: int(process.env.DB_PORT, 3306),
     user: process.env.DB_USER ?? 'root',
     password: process.env.DB_PASSWORD ?? '',
-    database: process.env.DB_NAME ?? 'sunledger',
+    database: process.env.DB_NAME ?? 'solalium',
+    // TiDB Cloud needs an encrypted connection; a local database on this computer does not. Set DB_SSL=true or false to force it.
+    ssl: process.env.DB_SSL ? process.env.DB_SSL === 'true' : !['127.0.0.1', 'localhost', '::1'].includes(process.env.DB_HOST ?? '127.0.0.1'),
   },
 
   resend: {
     apiKey: process.env.RESEND_API_KEY ?? '',
-    from: process.env.MAIL_FROM ?? 'Sunledger <onboarding@resend.dev>',
+    from: process.env.MAIL_FROM ?? 'Solalium <onboarding@resend.dev>',
   },
 
   // While there is no admin console, pending vendors are shown to customers. Set to 1 once vendors

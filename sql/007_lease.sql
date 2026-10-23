@@ -1,7 +1,7 @@
--- Sunledger — Phase 4 schema: lease to own as "pay small small" (3, 4, 6 or 12 months).
+-- Solalium — Phase 4 schema: lease to own as "pay small small" (3, 4, 6 or 12 months).
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 
-USE sunledger;
+USE solalium;
 
 CREATE TABLE IF NOT EXISTS deal_lease_terms (
   deal_id     BIGINT UNSIGNED NOT NULL PRIMARY KEY,

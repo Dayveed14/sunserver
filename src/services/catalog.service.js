@@ -1,4 +1,5 @@
 import { HttpError } from '../lib/httpError.js';
+import { isCore } from '../utils/productCategories.js';
 import { EAAS_RULES, computeEaas, componentsFromItems } from '../utils/eaas.js';
 import { leaseOptions } from '../utils/lease.js';
 import { checkDealComposition, dealSpecs, plansOffered } from '../utils/matching.js';
@@ -15,6 +16,12 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
     const resolved = [];
     for (const { productId, qty } of items) {
       const p = byId.get(productId);
+      // Deals are complete solar systems: only panels, inverters and batteries go into them.
+      if (p && !isCore(p.category)) {
+        throw new HttpError(400, 'INVALID_DEAL', 'Deals can only include solar panels, inverters and batteries. Sell other products on their own in the shop.', {
+          fields: { items: 'Pick a panel, an inverter and a battery.' },
+        });
+      }
       if (!p) {
         throw new HttpError(400, 'INVALID_DEAL', 'One of the products is not in your catalogue.', {
           fields: { items: 'Pick products from your own catalogue.' },

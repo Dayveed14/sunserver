@@ -13,15 +13,15 @@ describe('Cloudinary', () => {
   });
   it('uploads with a correct signature and never sends the secret', async () => {
     let seen;
-    const fetchImpl = async (url, init) => { seen = { url, form: init.body }; return { ok: true, json: async () => ({ secure_url: 'https://res.cloudinary.com/mycloud/image/upload/v1/sunledger/a.png', public_id: 'sunledger/a' }) }; };
+    const fetchImpl = async (url, init) => { seen = { url, form: init.body }; return { ok: true, json: async () => ({ secure_url: 'https://res.cloudinary.com/mycloud/image/upload/v1/solalium/a.png', public_id: 'solalium/a' }) }; };
     const c = createCloudinary({ cloudName: 'mycloud', apiKey: 'KEY', apiSecret: 'SECRET', fetchImpl, now: () => 1_700_000_000_000 });
     const r = await c.upload(PNG, 'image/png');
     assert.equal(seen.url, 'https://api.cloudinary.com/v1_1/mycloud/image/upload');
-    const expected = crypto.createHash('sha1').update('folder=sunledger&timestamp=1700000000SECRET').digest('hex');
+    const expected = crypto.createHash('sha1').update('folder=solalium&timestamp=1700000000SECRET').digest('hex');
     assert.equal(seen.form.get('signature'), expected);
     assert.equal(seen.form.get('api_key'), 'KEY');
     assert.ok(![...seen.form.values()].some((v) => v === 'SECRET'));
-    assert.equal(r.publicId, 'sunledger/a');
+    assert.equal(r.publicId, 'solalium/a');
   });
   it('asks for a smaller, best-format version when serving', () => {
     assert.equal(optimisedUrl('https://res.cloudinary.com/m/image/upload/v1/a.png'), 'https://res.cloudinary.com/m/image/upload/f_auto,q_auto,w_900,c_limit/v1/a.png');

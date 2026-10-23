@@ -1,11 +1,11 @@
 import { HttpError } from '../lib/httpError.js';
+import { CORE_CATEGORIES, isCategory } from '../utils/productCategories.js';
 import { SLA_RULES, estimateDelivery } from '../utils/sla.js';
 import { findArea, stateName } from '../utils/areas.js';
 import { leaseOptions } from '../utils/lease.js';
 import { dealSpecs, plansOffered } from '../utils/matching.js';
 import { publicDeal, publicProduct } from './offers.service.js';
 
-const CATEGORIES = new Set(['panel', 'inverter', 'battery']);
 
 // The public shop. Customers only see vendors in the state they are shopping for: there is no interstate delivery.
 export function createShopService({ productsModel, dealsModel, feesService, config, sla = SLA_RULES, now = () => new Date() }) {
@@ -49,7 +49,18 @@ export function createShopService({ productsModel, dealsModel, feesService, conf
   return {
     async listProducts({ state, category, q }) {
       needState(state);
-      const products = await productsModel.listPublic({ ...opt, state, category: CATEGORIES.has(category) ? category : undefined, search: q ?? '', limit: 100 });
+      // "more" means every product that is not a panel, inverter or battery.
+      if (category && category !== 'more' && !isCategory(category)) {
+        throw new HttpError(400, 'VALIDATION_ERROR', 'Choose a valid product category.');
+      }
+      const products = await productsModel.listPublic({
+        ...opt,
+        state,
+        category: category && category !== 'more' ? category : undefined,
+        excludeCategories: category === 'more' ? CORE_CATEGORIES : undefined,
+        search: q ?? '',
+        limit: 100,
+      });
       return { state, stateName: stateName(state), products: products.filter(hasLocation).map((p) => ({ ...publicProduct(p), vendor: { ...publicProduct(p).vendor, areaName: findArea(p.vendorState, p.vendorArea)?.name ?? null } })) };
     },
 

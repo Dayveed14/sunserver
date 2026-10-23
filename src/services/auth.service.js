@@ -5,7 +5,7 @@ import { toPublicUser } from '../lib/publicUser.js';
 
 const PURPOSE = 'verify_email';
 // Compared against when an email doesn't exist, so response time doesn't reveal which emails are registered.
-const DUMMY_HASH = bcrypt.hashSync('sunledger-timing-equaliser', 10);
+const DUMMY_HASH = bcrypt.hashSync('solalium-timing-equaliser', 10);
 
 const ROLE_LABEL = { individual: 'individual', business: 'business', vendor: 'vendor', admin: 'admin' };
 // If a person has several accounts on one email, log in to the first of these they have.
@@ -82,7 +82,7 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
       const owner = verifiedOthers[0];
       if (!(await bcrypt.compare(password, owner.password_hash))) {
         throw new HttpError(401, 'EXISTING_ACCOUNT_PASSWORD',
-          `This email already has a Sunledger account. To add a ${ROLE_LABEL[role]} account, enter that account's current password.`);
+          `This email already has a Solalium account. To add a ${ROLE_LABEL[role]} account, enter that account's current password.`);
       }
       const t = now();
       const id = await users.create({ email, passwordHash: owner.password_hash, role, fullName, phone, companyName, address, verifiedAt: t, registrationFeeStatus: feeStatusFor(role) });

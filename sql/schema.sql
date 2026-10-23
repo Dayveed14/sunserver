@@ -1,8 +1,8 @@
--- Sunledger — Phase 1 schema (MySQL 8 / MariaDB 10.5+)
+-- Solalium — Phase 1 schema (MySQL 8 / MariaDB 10.5+)
 -- Run with:  npm run db:init
 
-CREATE DATABASE IF NOT EXISTS sunledger CHARACTER SET utf8mb4;
-USE sunledger;
+CREATE DATABASE IF NOT EXISTS solalium CHARACTER SET utf8mb4;
+USE solalium;
 
 -- One login identity for everyone. Role-specific details live in the profile tables.
 CREATE TABLE IF NOT EXISTS users (

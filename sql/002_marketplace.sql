@@ -1,8 +1,8 @@
--- Sunledger — Phase 2 schema: vendor products, combos/deals, and customer requests.
+-- Solalium — Phase 2 schema: vendor products, combos/deals, and customer requests.
 -- Safe to run on an existing database: every statement is CREATE TABLE IF NOT EXISTS.
 -- Run with:  npm run db:init
 
-USE sunledger;
+USE solalium;
 
 -- A single sellable item a vendor lists. `rating` means a different unit per category:
 --   panel    -> watts per panel (e.g. 550)
@@ -12,7 +12,7 @@ USE sunledger;
 CREATE TABLE IF NOT EXISTS products (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   vendor_id      BIGINT UNSIGNED NOT NULL,
-  category       ENUM('panel','inverter','battery') NOT NULL,
+  category       ENUM('panel','inverter','battery','controller','mounting','cable','connector','protection','surge_protection','distribution','earthing','accessory','meter','monitoring','transfer_switch','energy_management','portable_power','generator','pump','streetlight','lighting','kit') NOT NULL,
   name           VARCHAR(120) NOT NULL,
   brand          VARCHAR(60)  NULL,
   rating         DECIMAL(10,2) NOT NULL,

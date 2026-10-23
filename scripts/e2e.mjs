@@ -126,6 +126,21 @@ const cross = await client()('GET', `/shop/products/${pid}?state=abuja&areaId=ga
 assert.equal(cross.body.delivery.available, false);
 step(`shop is state-limited; product page says vendor is ${page.body.delivery.distanceKm} km away, delivery ₦${page.body.delivery.fee}`);
 
+// more product types: a no-size cable, a sized charge controller, bad input, shop filters, and a deal that refuses non-core
+const cable = await vendor('POST', '/vendor/products', { category: 'cable', name: 'Solar cable 6mm 100m', price: 45000, inStock: true, status: 'active' });
+assert.equal(cable.status, 201, JSON.stringify(cable.body));
+assert.equal(Number(cable.body.product.rating), 0);
+const ctrl = await vendor('POST', '/vendor/products', { category: 'controller', name: 'MPPT 60A', rating: 60, systemVoltage: 48, price: 85000, inStock: true, status: 'active' });
+assert.equal(ctrl.status, 201, JSON.stringify(ctrl.body));
+assert.equal((await vendor('POST', '/vendor/products', { category: 'controller', name: 'MPPT no size', price: 85000, inStock: true, status: 'active' })).status, 400);
+assert.equal((await vendor('POST', '/vendor/products', { category: 'toaster', name: 'Nope', price: 85000, inStock: true, status: 'active' })).status, 400);
+const more = await client()('GET', '/shop/products?state=lagos&category=more');
+assert.ok(more.body.products.some((p) => p.id === cable.body.product.id) && more.body.products.every((p) => !['panel', 'inverter', 'battery'].includes(p.category)));
+const onlyCtrl = await client()('GET', '/shop/products?state=lagos&category=controller');
+assert.ok(onlyCtrl.body.products.length > 0 && onlyCtrl.body.products.every((p) => p.category === 'controller'));
+assert.equal((await client()('GET', '/shop/products?state=lagos&category=toaster')).status, 400);
+step('22 product types: cable (no size) and charge controller list under More products, bad type and missing size refused');
+
 // checkout with idempotency
 const items = [{ kind: 'product', id: pid, qty: 2 }];
 const q = await buyer('POST', '/checkout/quote', { items });
@@ -221,6 +236,8 @@ const mk = async (cat, name, rating, volt, price) => (await vendor('POST', '/ven
 const panelId = await mk('panel', 'Deal panel 550W', 550, null, 100000);
 const invId = await mk('inverter', 'Deal inverter 5kVA', 5, 48, 400000);
 const batId = await mk('battery', 'Deal battery 48V', 5, 48, 600000);
+const badDeal = await vendor('POST', '/vendor/deals', { title: 'Cable deal', items: [{ productId: cable.body.product.id, qty: 1 }, { productId: invId, qty: 1 }, { productId: batId, qty: 1 }], installationIncluded: true, buyPrice: 700000 });
+assert.equal(badDeal.status, 400, JSON.stringify(badDeal.body));
 const deal = await vendor('POST', '/vendor/deals', { title: 'Home starter', items: [{ productId: panelId, qty: 6 }, { productId: invId, qty: 1 }, { productId: batId, qty: 1 }], installationIncluded: true, buyPrice: 1500000, lease: { depositPct: 30, tenors: [3, 6, 12] }, status: 'active' });
 assert.equal(deal.status, 201, JSON.stringify(deal.body));
 const dealPage = await client()('GET', `/shop/deals/${deal.body.deal.id}?state=lagos&areaId=yaba`);

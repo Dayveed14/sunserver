@@ -1,7 +1,7 @@
--- Sunledger — Phase 4 schema: delivery prices per vendor, orders, payments.
+-- Solalium — Phase 4 schema: delivery prices per vendor, orders, payments.
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 
-USE sunledger;
+USE solalium;
 
 -- What it costs to deliver from a vendor to every area in their state. Worked out when the vendor registers or moves.
 CREATE TABLE IF NOT EXISTS vendor_delivery_fees (

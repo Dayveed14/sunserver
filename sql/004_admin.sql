@@ -1,7 +1,7 @@
--- Sunledger — Phase 3b schema: password reset links, admin-editable pricing settings, admin audit trail.
+-- Solalium — Phase 3b schema: password reset links, admin-editable pricing settings, admin audit trail.
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 
-USE sunledger;
+USE solalium;
 
 -- Password reset links. Only a SHA-256 of the token is stored, so a database leak cannot be used to reset accounts.
 CREATE TABLE IF NOT EXISTS password_resets (

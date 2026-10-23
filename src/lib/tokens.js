@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
 export const SESSION_COOKIE = 'sl_session';
-const ISSUER = 'sunledger';
+const ISSUER = 'solalium';
 
 export function signSession(user) {
   return jwt.sign({ role: user.role, tv: user.token_version }, env.jwtSecret, {

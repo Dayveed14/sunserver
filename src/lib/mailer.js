@@ -8,14 +8,14 @@ export function createMailer({ apiKey, from, isProd }) {
 
   return {
     async sendOtp({ to, name, code, ttlMinutes }) {
-      const subject = `${code} is your Sunledger verification code`;
+      const subject = `${code} is your Solalium verification code`;
       const text =
-        `Hi ${name},\n\nYour Sunledger verification code is ${code}.\n` +
+        `Hi ${name},\n\nYour Solalium verification code is ${code}.\n` +
         `It expires in ${ttlMinutes} minutes. If you didn't try to sign up, you can ignore this email.\n`;
       const html = `
         <div style="font-family:Arial,Helvetica,sans-serif;max-width:420px;margin:0 auto;padding:24px;color:#10141f">
           <p style="font-size:15px;margin:0 0 16px">Hi ${escapeHtml(name)},</p>
-          <p style="font-size:15px;margin:0 0 20px">Use this code to verify your email and finish creating your Sunledger account:</p>
+          <p style="font-size:15px;margin:0 0 20px">Use this code to verify your email and finish creating your Solalium account:</p>
           <p style="font-size:34px;font-weight:700;letter-spacing:8px;margin:0 0 20px;color:#b4700a">${escapeHtml(code)}</p>
           <p style="font-size:13px;color:#5b6172;margin:0">It expires in ${ttlMinutes} minutes. If you didn't try to sign up, you can ignore this email.</p>
         </div>`;
@@ -32,14 +32,14 @@ export function createMailer({ apiKey, from, isProd }) {
     },
 
     async sendPasswordReset({ to, name, link, ttlMinutes }) {
-      const subject = 'Reset your Sunledger password';
+      const subject = 'Reset your Solalium password';
       const text =
-        `Hi ${name},\n\nSomeone asked to reset the password for your Sunledger account. Open this link to choose a new one:\n${link}\n\n` +
+        `Hi ${name},\n\nSomeone asked to reset the password for your Solalium account. Open this link to choose a new one:\n${link}\n\n` +
         `It works once and expires in ${ttlMinutes} minutes. If this wasn't you, ignore this email: your password stays the same.\n`;
       const html = `
         <div style="font-family:Arial,Helvetica,sans-serif;max-width:460px;margin:0 auto;padding:24px;color:#10141f">
           <p style="font-size:15px;margin:0 0 16px">Hi ${escapeHtml(name)},</p>
-          <p style="font-size:15px;margin:0 0 20px">Someone asked to reset the password for your Sunledger account.</p>
+          <p style="font-size:15px;margin:0 0 20px">Someone asked to reset the password for your Solalium account.</p>
           <p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="background:#b4700a;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Choose a new password</a></p>
           <p style="font-size:13px;color:#5b6172;margin:0">The link works once and expires in ${ttlMinutes} minutes. If this wasn't you, ignore this email: your password stays the same.</p>
         </div>`;
@@ -62,7 +62,7 @@ export function createMailer({ apiKey, from, isProd }) {
           <h2 style="font-size:20px;margin:0 0 16px">${escapeHtml(heading)}</h2>
           ${lines.map((l) => `<p style="font-size:15px;line-height:1.55;margin:0 0 12px">${escapeHtml(l)}</p>`).join('')}
           ${button ? `<p style="margin:20px 0 0"><a href="${escapeHtml(button.url)}" style="background:#b4700a;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">${escapeHtml(button.label)}</a></p>` : ''}
-          <p style="font-size:12px;color:#5b6172;margin:24px 0 0">Sunledger</p>
+          <p style="font-size:12px;color:#5b6172;margin:24px 0 0">Solalium</p>
         </div>`;
       if (!client) {
         if (isProd) throw new Error('RESEND_API_KEY is not configured');

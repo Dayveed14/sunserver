@@ -149,14 +149,14 @@ export const productsModel = {
   // Everything customers can pick from in the DIY builder (the matching rules narrow it down).
   async listBuyable({ requireVerified, state }) {
     const rows = await query(
-      `${SELECT} WHERE p.status = 'active' AND p.in_stock = 1 AND ${visibleVendor(requireVerified)}${state ? ' AND va.state = ?' : ''} LIMIT 2000`,
+      `${SELECT} WHERE p.status = 'active' AND p.in_stock = 1 AND p.category IN ('panel','inverter','battery') AND ${visibleVendor(requireVerified)}${state ? ' AND va.state = ?' : ''} LIMIT 2000`,
       state ? [state] : []
     );
     return rows.map(toProduct);
   },
 
   // The public shop.
-  async listPublic({ requireVerified, category, search, limit, state }) {
+  async listPublic({ requireVerified, category, excludeCategories, search, limit, state }) {
     const where = ["p.status = 'active'", visibleVendor(requireVerified)];
     const params = [];
     if (state) {
@@ -166,6 +166,10 @@ export const productsModel = {
     if (category) {
       where.push('p.category = ?');
       params.push(category);
+    }
+    if (excludeCategories?.length) {
+      where.push(`p.category NOT IN (${excludeCategories.map(() => '?').join(',')})`);
+      params.push(...excludeCategories);
     }
     if (search) {
       where.push('(p.name LIKE ? OR p.brand LIKE ? OR v.company_name LIKE ?)');
