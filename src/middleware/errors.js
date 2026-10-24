@@ -17,6 +17,6 @@ export function errorHandler(err, req, res, next) {
   if (err?.type === 'entity.too.large') {
     return res.status(413).json({ error: { code: 'TOO_LARGE', message: 'Request body is too large' } });
   }
-  console.error('[error]', err);
-  res.status(500).json({ error: { code: 'INTERNAL', message: 'Something went wrong on our side. Please try again.' } });
+  console.error(JSON.stringify({ level: 'error', msg: 'unhandled error', requestId: req.id, method: req.method, path: req.path, userId: req.user?.id ?? null, error: err?.message, code: err?.code, stack: err?.stack?.split('\n').slice(0, 6).join(' | ') }));
+  res.status(500).json({ error: { code: 'INTERNAL', message: 'Something went wrong on our side. Please try again.', requestId: req.id } });
 }

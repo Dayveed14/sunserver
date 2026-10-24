@@ -15,6 +15,13 @@ if (!jwtSecret || jwtSecret.length < 32) {
   );
 }
 
+if (isProd) {
+  const origin = process.env.CLIENT_ORIGIN ?? '';
+  if (!/^https:\/\/[^/]+$/.test(origin)) {
+    throw new Error('CLIENT_ORIGIN must be set to your site address in production, starting with https:// and with no path or trailing slash (for example https://solalium.com).');
+  }
+}
+
 const int = (value, fallback) => {
   const n = Number.parseInt(value ?? '', 10);
   return Number.isFinite(n) ? n : fallback;

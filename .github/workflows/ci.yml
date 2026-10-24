@@ -1,0 +1,57 @@
+# Runs on every push and pull request. A red tick means: do not deploy this.
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      db:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DB_HOST: 127.0.0.1
+      DB_USER: root
+      DB_PASSWORD: ''
+      DB_NAME: solalium_ci
+      JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit and service tests
+        run: npm test
+      - name: Create the database from scratch
+        run: npm run db:init
+      - name: End-to-end (real database: sign-up, orders, payments, deals)
+        run: npm run e2e
+      - name: Security (access control, sessions, Paystack, order states)
+        run: npm run e2e:security
+      - name: Backup and restore round trip
+        run: |
+          npm run db:backup -- /tmp/ci-backup.sql.gz
+          mysql -h 127.0.0.1 -u root -e "CREATE DATABASE solalium_restore_ci"
+          DB_NAME=solalium_restore_ci npm run db:restore -- /tmp/ci-backup.sql.gz
+          test "$(mysql -h 127.0.0.1 -u root -N -e 'SELECT COUNT(*) FROM solalium_ci.users')" = "$(mysql -h 127.0.0.1 -u root -N -e 'SELECT COUNT(*) FROM solalium_restore_ci.users')"
+
+  audit:
+    runs-on: ubuntu-latest
+    # Reports known vulnerable packages. It does not block a deploy; read it weekly.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm audit --omit=dev --audit-level=high

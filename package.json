@@ -12,7 +12,11 @@
     "test": "node --test",
     "db:init": "node scripts/init-db.js",
     "create-admin": "node scripts/create-admin.js",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "e2e:security": "node scripts/e2e-security.mjs",
+    "check:env": "node scripts/check-env.mjs",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:restore": "node scripts/db-restore.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
