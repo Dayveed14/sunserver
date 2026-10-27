@@ -51,7 +51,7 @@ export function createOrdersService({ productsModel, dealsModel, ordersModel, fe
       let unitPrice;
       let name;
       if (l.kind === 'product') {
-        if (src.status !== 'active' || !src.inStock || !visible(src.vendorVerification)) { problem(`${src.name} is not available right now.`); continue; }
+        if (src.status !== 'active' || !src.inStock || !visible(src.vendorVerification) || src.vendorSubscriptionOk === false) { problem(`${src.name} is not available right now.`); continue; }
         unitPrice = src.price;
         name = src.brand ? `${src.brand} ${src.name}` : src.name;
       } else {

@@ -1,9 +1,10 @@
+import { stateOf, subscriptionOkSql } from '../utils/subscription.js';
 import { query } from '../db/pool.js';
 
 const SELECT = `
   SELECT p.id, p.vendor_id, p.category, p.name, p.brand, p.rating, p.system_voltage, p.battery_type,
          p.price, p.in_stock, p.warranty_years, p.description, p.status, p.includes_controller, p.created_at,
-         v.company_name AS vendor_name, v.verification_status AS vendor_verification,
+         v.company_name AS vendor_name, v.verification_status AS vendor_verification, v.vendor_type, v.subscription_paid_until,
          pi.image_id, va.state AS vendor_state, va.area_id AS vendor_area
   FROM products p
   JOIN vendor_profiles v ON v.user_id = p.vendor_id
@@ -16,6 +17,7 @@ export const toProduct = (r) => ({
   vendorName: r.vendor_name,
   vendorVerified: r.vendor_verification === 'verified',
   vendorVerification: r.vendor_verification,
+  vendorSubscriptionOk: stateOf({ vendorType: r.vendor_type, paidUntil: r.subscription_paid_until }).ok,
   vendorState: r.vendor_state ?? null,
   vendorArea: r.vendor_area ?? null,
   imageId: r.image_id == null ? null : Number(r.image_id),
@@ -36,8 +38,9 @@ export const toProduct = (r) => ({
 });
 
 // Customers never see rejected vendors; if approval is required they only see verified ones.
+// A vendor whose monthly subscription has run out (past the grace period) is hidden too.
 const visibleVendor = (requireVerified) =>
-  requireVerified ? "v.verification_status = 'verified'" : "v.verification_status <> 'rejected'";
+  requireVerified ? `v.verification_status = 'verified' AND ${subscriptionOkSql('v')}` : "v.verification_status <> 'rejected'";
 
 const fields = (d) => [
   d.category, d.name, d.brand ?? null, d.rating, d.systemVoltage ?? null, d.batteryType ?? null,

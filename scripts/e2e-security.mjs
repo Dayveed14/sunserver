@@ -98,7 +98,7 @@ step('test accounts: two vendors, two customers, an installer, one admin');
 // ---------------------------------------------------------------------------------------------------------------
 const MOUNTS = {
   'auth.routes.js': { router: '/api/auth' }, 'analysis.routes.js': { router: '/api/analysis' }, 'vendorFee.routes.js': { router: '/api/vendor/fee' },
-  'vendorOrders.routes.js': { router: '/api/vendor/orders' }, 'vendor.routes.js': { router: '/api/vendor' }, 'adminOrders.routes.js': { router: '/api/admin/orders' },
+  'vendorOrders.routes.js': { router: '/api/vendor/orders' }, 'vendor.routes.js': { router: '/api/vendor' }, 'vendorSubscription.routes.js': { router: '/api/vendor/subscription' }, 'partners.routes.js': { router: '/api/partners' }, 'adminOrders.routes.js': { router: '/api/admin/orders' },
   'admin.routes.js': { router: '/api/admin' }, 'installer.routes.js': { router: '/api/installer' }, 'installations.routes.js': { router: '/api/installations' }, 'adminInstallations.routes.js': { router: '/api/admin/installations' }, 'blog.routes.js': { router: '/api/blog' }, 'adminBlog.routes.js': { router: '/api/admin/blog' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
   'offers.routes.js': { router: '/api/offers' }, 'shop.routes.js': { router: '/api/shop' }, 'webhook.routes.js': { router: '/api/webhooks' },
   'images.routes.js': { vendorUploadRouter: '/api/vendor/images', adminUploadRouter: '/api/admin/images', viewRouter: '/api/images' },
@@ -107,7 +107,7 @@ const PUBLIC = new Set([
   'POST /auth/register', 'POST /auth/verify-otp', 'POST /auth/resend-otp', 'POST /auth/login', 'POST /auth/forgot-password', 'POST /auth/reset-password', 'POST /auth/logout', 'GET /auth/areas',
   'GET /analysis/catalog/:segment', 'POST /analysis/estimate',
   'GET /dispatch/info', 'POST /dispatch/confirm', // protected by a signed link, tested below
-  'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/products/:id', 'GET /shop/deals/:id',
+  'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /partners', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/products/:id', 'GET /shop/deals/:id',
   'GET /images/:id', 'POST /webhooks/paystack', // the webhook is protected by its signature, tested below
 ]);
 const routeDir = path.resolve('src/routes');
@@ -394,6 +394,33 @@ assert.equal(Number((await query("SELECT COUNT(*) c FROM install_payments WHERE 
 assert.equal((await custB('POST', `/installations/verify`, { reference: instPay.body.reference })).status, 404, 'another customer cannot verify it');
 assert.equal((await custA('POST', `/installations/${instRef}/pay`)).status, 409, 'a paid request cannot be paid again');
 step('installation payments: bad signature, short payment and wrong currency are refused; 6 simultaneous genuine webhooks open the job once');
+// Subscription payments go through the same webhook and the same rules.
+assert.equal((await admin('PUT', '/admin/settings', { changes: { vendorSubscriptionSeller: 20000, vendorSubscriptionCompany: 50000 } })).status, 200);
+const subStart = await vendorA('POST', '/vendor/subscription/start', { months: 3 });
+assert.equal(subStart.status, 201, JSON.stringify(subStart.body));
+const paidUntilOf = async () => (await query("SELECT subscription_paid_until p FROM vendor_profiles vp JOIN subscription_payments sp ON sp.vendor_id = vp.user_id WHERE sp.reference = ?", [subStart.body.reference]))[0].p;
+const sevent = (over = {}) => JSON.stringify({ event: 'charge.success', data: { reference: subStart.body.reference, amount: subStart.body.amount * 100, currency: 'NGN', status: 'success', ...over } });
+const subBefore = await paidUntilOf();
+assert.equal((await hook(sevent(), 'deadbeef')).status >= 400, true);
+const sshort = sevent({ amount: subStart.body.amount * 100 - 100 });
+await hook(sshort, sign(sshort));
+const susd = sevent({ currency: 'USD' });
+await hook(susd, sign(susd));
+const sfail = JSON.stringify({ event: 'charge.failed', data: { reference: 'SUB-NOSUCH', status: 'failed' } });
+assert.ok((await hook(sfail, sign(sfail))).status < 500);
+assert.equal(String(await paidUntilOf()), String(subBefore), 'bad signature, short payment and wrong currency do not extend the subscription');
+const sgood = sevent();
+const sresults = await Promise.all(Array.from({ length: 6 }, () => hook(sgood, sign(sgood))));
+assert.ok(sresults.every((r) => r.status === 200));
+const afterPaid = await paidUntilOf();
+assert.ok(afterPaid && new Date(afterPaid) > new Date(Date.now() + 85 * 86400000), 'three months were added');
+assert.equal(Number((await query("SELECT COUNT(*) c FROM subscription_payments WHERE reference = ? AND status = 'success'", [subStart.body.reference]))[0].c), 1);
+await hook(sgood, sign(sgood));
+assert.equal(String(await paidUntilOf()), String(afterPaid), 'a replay adds nothing');
+assert.equal((await custA('POST', '/vendor/subscription/verify', { reference: subStart.body.reference })).status, 403, 'customers cannot use vendor payment routes');
+assert.equal((await vendorB('POST', '/vendor/subscription/verify', { reference: subStart.body.reference })).status, 404, 'another vendor cannot check it');
+assert.equal((await admin('PUT', '/admin/settings', { changes: { vendorSubscriptionSeller: null, vendorSubscriptionCompany: null } })).status, 200);
+step('subscription payments: bad signature, short payment and wrong currency are refused; 6 simultaneous genuine webhooks extend it once; a replay adds nothing');
 const bodyless = await anon('POST', '/webhooks/paystack', '{not json', { 'x-paystack-signature': sign('{not json'), 'Content-Type': 'application/json' });
 assert.ok(bodyless.status < 500, 'malformed webhook body must not crash the server');
 

@@ -79,6 +79,11 @@ export const resetSchema = z.object({
   password,
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Enter your current password').max(200),
+  newPassword: password,
+});
+
 export const switchSchema = z.object({ role: z.enum(ROLES) });
 
 // Opening another account type while signed in. Company name is needed for business and vendor accounts.

@@ -1,5 +1,5 @@
 import { HttpError } from '../lib/httpError.js';
-import { registrationFeeService } from '../services/index.js';
+import { registrationFeeService, subscriptionService } from '../services/index.js';
 import { vendorsModel } from '../models/vendors.js';
 
 // While registration is paid, a vendor who has not paid can sign in but cannot use the dashboard.
@@ -24,6 +24,19 @@ export async function requireVerifiedVendor(req, res, next) {
       throw new HttpError(403, 'VENDOR_NOT_VERIFIED', p?.verification === 'rejected'
         ? 'Your verification was not approved. Open Verification to see why and send new documents.'
         : 'Your account is waiting for verification. Upload your documents and we will review them before you can post products.');
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Posting products and deals needs the monthly subscription to be paid (or inside its grace period) when the vendor's type has one.
+// Reading, order handling and everything the vendor already owes customers stays open.
+export async function requireSubscription(req, res, next) {
+  try {
+    if (!(await subscriptionService.isActive(req.user.id))) {
+      throw new HttpError(402, 'SUBSCRIPTION_REQUIRED', 'Your monthly subscription has ended. Renew it to add or change products and deals.');
     }
     next();
   } catch (err) {

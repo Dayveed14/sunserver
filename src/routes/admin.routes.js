@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import * as sub from '../controllers/subscription.controller.js';
+import { grantAllSchema, grantSchema } from '../validators/subscription.schemas.js';
 import * as c from '../controllers/admin.controller.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -22,7 +24,11 @@ router.get('/installers', v.listInstallers);
 router.get('/installers/:id', v.installerReview);
 router.patch('/installers/:id/verification', validate(decisionSchema), v.decideInstaller);
 
+router.get('/subscriptions', sub.adminList);
+router.post('/subscriptions/grant-all', validate(grantAllSchema), sub.adminGrantAll);
+router.post('/subscriptions/:id/grant', validate(grantSchema), sub.adminGrant);
 router.get('/users', c.listUsers);
+router.get('/users/:id', c.getUser);
 router.patch('/users/:id/status', validate(userStatusSchema), c.setUserStatus);
 
 router.get('/products', c.listProducts);

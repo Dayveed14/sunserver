@@ -176,6 +176,29 @@ export function createNotifier({ mailer, config, tokens, now = () => new Date() 
       await send(adminEmail, { subject: `Installer quiz received · ${who}`, heading: 'An installer finished the quiz', lines: [`${who} has answered the technical questions and is waiting for your decision.`], button: { label: 'Review installers', url: link('/admin/installers') } });
     },
 
+    // ---- vendor subscription ----
+    async subscription_paid({ vendor, amount, months, paidUntil }) {
+      await send(vendor.email, {
+        subject: 'Subscription received', heading: 'Thank you, your subscription is paid',
+        lines: [`Hi ${vendor.fullName}, we received ${naira(amount)} for ${months} month${months === 1 ? '' : 's'}.`, `Your listings stay live until ${new Date(paidUntil).toDateString()}.`],
+        button: { label: 'Open your subscription', url: link('/app/subscription') },
+      });
+    },
+    async subscription_due({ vendor, paidUntil, amount }) {
+      await send(vendor.email, {
+        subject: 'Your Solalium subscription is due soon', heading: 'Your subscription runs out soon',
+        lines: [`Hi ${vendor.fullName}, your monthly subscription runs out on ${new Date(paidUntil).toDateString()}.`, `Renew (${naira(amount)} a month) to keep your products and deals visible to customers.`],
+        button: { label: 'Renew now', url: link('/app/subscription') },
+      });
+    },
+    async subscription_lapsed({ vendor, amount }) {
+      await send(vendor.email, {
+        subject: 'Your listings are hidden: subscription ended', heading: 'Your products and deals are hidden',
+        lines: [`Hi ${vendor.fullName}, your subscription has ended, so customers no longer see your products and deals, and you cannot add new ones.`, `Pay ${naira(amount)} to bring everything back straight away. Nothing you posted was deleted.`],
+        button: { label: 'Renew now', url: link('/app/subscription') },
+      });
+    },
+
     // ---- installation requests ----
     async install_paid({ request, customer }) {
       await send(customer.email, {

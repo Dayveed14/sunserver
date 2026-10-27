@@ -2,7 +2,8 @@ import { query, withTransaction } from '../db/pool.js';
 import { HttpError } from '../lib/httpError.js';
 
 const SELECT_USER = `
-  SELECT u.id, u.email, u.password_hash, u.role, u.full_name, u.phone, u.email_verified_at,
+  SELECT u.id, u.email, u.password_hash, u.role, u.full_name, u.phone, u.email_verified_at, u.created_at,
+         (SELECT COUNT(*) FROM verification_documents d WHERE d.user_id = u.id) AS doc_count,
          u.status, u.token_version, u.failed_login_attempts, u.locked_until,
          COALESCE(b.company_name, v.company_name) AS company_name,
          v.vendor_type, v.verification_status AS vendor_verification, v.verification_note AS vendor_note,
@@ -37,6 +38,17 @@ async function insertProfile(conn, userId, role, companyName, feeStatus = 'waive
     await conn.execute('INSERT INTO installer_profiles (user_id) VALUES (?)', [userId]);
   }
 }
+
+const toAdminUser = (r) => ({
+  id: Number(r.id), email: r.email, fullName: r.full_name, role: r.role, status: r.status,
+  companyName: r.company_name ?? null, emailVerified: Boolean(r.email_verified_at),
+  phone: r.phone ?? null, createdAt: r.created_at, documentCount: Number(r.doc_count ?? 0),
+  address: r.address_line ? { line: r.address_line, state: r.address_state, areaId: r.address_area } : null,
+  vendorType: r.vendor_type ?? null,
+  verification: r.role === 'vendor' ? r.vendor_verification : r.role === 'installer' ? r.installer_verification : null,
+  verificationNote: (r.role === 'vendor' ? r.vendor_note : r.role === 'installer' ? r.installer_note : null) ?? null,
+  quizSubmittedAt: r.installer_quiz_at ?? null,
+});
 
 export const usersModel = {
   // Every account that shares this email (at most one per account type).
@@ -149,9 +161,26 @@ export const usersModel = {
       `${SELECT_USER} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY u.id DESC LIMIT ${Number(limit) | 0}`,
       params
     );
-    return rows.map((r) => ({
-      id: Number(r.id), email: r.email, fullName: r.full_name, role: r.role, status: r.status,
-      companyName: r.company_name ?? null, emailVerified: Boolean(r.email_verified_at),
-    }));
+    return rows.map(toAdminUser);
+  },
+
+  // What the admin sees when opening one account: the row above plus a few counts for context.
+  async adminDetail(id) {
+    const rows = await query(`${SELECT_USER} WHERE u.id = ? LIMIT 1`, [id]);
+    if (!rows[0]) return null;
+    const one = async (sql) => Number((await query(sql, [id]))[0]?.n ?? 0);
+    const r = rows[0];
+    const stats = {};
+    if (r.role === 'individual' || r.role === 'business') {
+      stats.orders = await one('SELECT COUNT(*) AS n FROM orders WHERE customer_id = ?');
+      stats.installations = await one('SELECT COUNT(*) AS n FROM install_requests WHERE customer_id = ?');
+    } else if (r.role === 'vendor') {
+      stats.products = await one('SELECT COUNT(*) AS n FROM products WHERE vendor_id = ?');
+      stats.orders = await one('SELECT COUNT(*) AS n FROM vendor_orders WHERE vendor_id = ?');
+    } else if (r.role === 'installer') {
+      stats.jobsTaken = await one("SELECT COUNT(*) AS n FROM install_requests WHERE installer_id = ?");
+      stats.jobsCompleted = await one("SELECT COUNT(*) AS n FROM install_requests WHERE installer_id = ? AND status = 'completed'");
+    }
+    return { ...toAdminUser(r), stats };
   },
 };

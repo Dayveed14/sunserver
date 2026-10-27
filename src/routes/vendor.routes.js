@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import * as c from '../controllers/vendor.controller.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { requireVendorActive, requireVerifiedVendor } from '../middleware/vendorGate.js';
+import { requireSubscription, requireVendorActive, requireVerifiedVendor } from '../middleware/vendorGate.js';
 import { MAX_DOCUMENT_BYTES, DOCUMENT_TYPES } from '../utils/documents.js';
 import * as v from '../controllers/verification.controller.js';
 import { dealSchema, dealStatusSchema, eaasPreviewSchema, leasePreviewSchema, productSchema, requestStatusSchema } from '../validators/marketplace.schemas.js';
@@ -27,14 +27,14 @@ router.post('/verification/submit', v.submit);
 router.use(requireVendorActive, requireVerifiedVendor);
 
 router.get('/products', c.listProducts);
-router.post('/products', validate(productSchema), c.createProduct);
-router.put('/products/:id', validate(productSchema), c.updateProduct);
+router.post('/products', requireSubscription, validate(productSchema), c.createProduct);
+router.put('/products/:id', requireSubscription, validate(productSchema), c.updateProduct);
 router.delete('/products/:id', c.archiveProduct);
 
 router.get('/deals', c.listDeals);
-router.post('/deals', validate(dealSchema), c.createDeal);
-router.put('/deals/:id', validate(dealSchema), c.updateDeal);
-router.patch('/deals/:id/status', validate(dealStatusSchema), c.setDealStatus);
+router.post('/deals', requireSubscription, validate(dealSchema), c.createDeal);
+router.put('/deals/:id', requireSubscription, validate(dealSchema), c.updateDeal);
+router.patch('/deals/:id/status', requireSubscription, validate(dealStatusSchema), c.setDealStatus);
 router.delete('/deals/:id', c.archiveDeal);
 
 router.post('/lease-preview', validate(leasePreviewSchema), c.leasePreview);

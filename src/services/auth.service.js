@@ -282,6 +282,21 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
     return { ok: true };
   }
 
+  // A signed-in person changes their own password. Every account on their email shares it, so it changes for all of them,
+  // and every other signed-in device is logged out (the controller gives this one a fresh session).
+  async function changePassword(userId, { currentPassword, newPassword }) {
+    const user = await users.findById(userId);
+    if (!user || user.status !== 'active') throw new HttpError(401, 'UNAUTHENTICATED', 'Please log in to continue.');
+    if (!(await bcrypt.compare(currentPassword, user.password_hash))) {
+      throw new HttpError(400, 'WRONG_PASSWORD', 'Your current password is not correct.', { fields: { currentPassword: 'Your current password is not correct.' } });
+    }
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+      throw new HttpError(400, 'SAME_PASSWORD', 'Choose a password you have not used before.', { fields: { newPassword: 'Choose a different password from your current one.' } });
+    }
+    await users.setPasswordForEmail(user.email, await bcrypt.hash(newPassword, config.bcryptRounds));
+    return { ok: true };
+  }
+
   // The signed-in person's full row, used when the controller needs to write the session cookie.
   const sessionUser = (id) => users.findById(id);
 
@@ -292,5 +307,5 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
       .map((u) => ({ role: u.role, companyName: u.company_name ?? null, current: Number(u.id) === user.id }));
   }
 
-  return { sessionUser, accountsFor, register, verifyEmail, resendOtp, login, forgotPassword, resetPassword, switchAccount, addAccount, updateProfile };
+  return { sessionUser, accountsFor, register, verifyEmail, resendOtp, login, forgotPassword, resetPassword, changePassword, switchAccount, addAccount, updateProfile };
 }

@@ -1,10 +1,10 @@
 import { asyncHandler } from '../lib/httpError.js';
-import { catalogService, registrationFeeService } from '../services/index.js';
+import { catalogService, registrationFeeService, subscriptionService } from '../services/index.js';
 import { numId } from '../utils/params.js';
 
 // The summary stays open to unpaid vendors: it tells the dashboard whether to show the "pay to start" screen.
 export const summary = asyncHandler(async (req, res) => {
-  res.json({ ...(await catalogService.summary(req.user.id)), registrationFee: await registrationFeeService.status(req.user.id) });
+  res.json({ ...(await catalogService.summary(req.user.id)), registrationFee: await registrationFeeService.status(req.user.id), subscription: await subscriptionService.status(req.user.id) });
 });
 
 // ---- Products ----

@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import * as c from '../controllers/images.controller.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
-import { requireVendorActive, requireVerifiedVendor } from '../middleware/vendorGate.js';
+import { requireSubscription, requireVendorActive, requireVerifiedVendor } from '../middleware/vendorGate.js';
 import { MAX_IMAGE_BYTES } from '../utils/images.js';
 
 const uploadLimiter = rateLimit({
@@ -16,7 +16,7 @@ const rawImage = express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], 
 
 // POST /api/vendor/images: a vendor uploads a picture.
 export const vendorUploadRouter = Router();
-vendorUploadRouter.post('/', authenticate, requireRole('vendor'), requireVendorActive, requireVerifiedVendor, uploadLimiter, rawImage, c.upload);
+vendorUploadRouter.post('/', authenticate, requireRole('vendor'), requireVendorActive, requireVerifiedVendor, requireSubscription, uploadLimiter, rawImage, c.upload);
 
 // POST /api/admin/images: the admin uploads a picture when editing a product.
 export const adminUploadRouter = Router();

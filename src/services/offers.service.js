@@ -19,7 +19,7 @@ const bad = (code, message, details) => new HttpError(400, code, message, detail
 
 // A vendor is visible to customers unless rejected (or unless approval is required and they are not verified yet).
 const vendorVisible = (requireVerified) => (x) =>
-  requireVerified ? x.vendorVerification === 'verified' : x.vendorVerification !== 'rejected';
+  (requireVerified ? x.vendorVerification === 'verified' : x.vendorVerification !== 'rejected') && x.vendorSubscriptionOk !== false;
 
 // What a customer is allowed to see about a product or deal. No internal fields.
 export const publicProduct = (p) => ({

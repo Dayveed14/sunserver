@@ -42,6 +42,9 @@ const DEFS = [
   ['eaasDepositMonths', 'Refundable deposit', 'Energy as a service', 'number', 'E', ['depositMonths'], 0, 3, 'months of payments'],
   // How Solalium earns
   ['vendorRegistrationFee', 'Vendor registration fee (one-time)', 'Solalium fees', 'naira', 'F', ['vendorRegistrationFee'], 0, 5000000, '₦ once per vendor, when registration is switched to paid'],
+  ['vendorSubscriptionSeller', 'Monthly subscription, sellers', 'Solalium fees', 'naira', 'F', ['vendorSubscriptionSeller'], 0, 5000000, '₦ per month. 0 = no subscription for sellers'],
+  ['vendorSubscriptionCompany', 'Monthly subscription, companies', 'Solalium fees', 'naira', 'F', ['vendorSubscriptionCompany'], 0, 5000000, '₦ per month. 0 = no subscription for companies'],
+  ['subscriptionGraceDays', 'Days of grace after a subscription runs out', 'Solalium fees', 'number', 'F', ['subscriptionGraceDays'], 0, 60, 'days before listings are hidden'],
   ['customerServicePct', 'Service charge added for the customer', 'Solalium fees', 'pct', 'F', ['customerServicePct'], 0, 0.3, 'of the items bought'],
   ['vendorCommissionPct', 'Platform fee held back from the vendor', 'Solalium fees', 'pct', 'F', ['vendorCommissionPct'], 0, 0.3, 'of the items sold'],
   // Installation by a Solalium installer

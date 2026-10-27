@@ -66,6 +66,10 @@ export async function migrate(conn, database = 'solalium') {
   await addColumn('vendor_profiles', 'documents_submitted_at', 'DATETIME NULL');
   await addColumn('vendor_profiles', 'verification_note', 'VARCHAR(500) NULL');
   await addColumn('vendor_profiles', 'verified_at', 'DATETIME NULL');
+  // Monthly subscription: when a vendor is paid up to, and which reminders were already sent for that date.
+  await addColumn('vendor_profiles', 'subscription_paid_until', 'DATETIME NULL');
+  await addColumn('vendor_profiles', 'sub_reminded_for', 'DATETIME NULL');
+  await addColumn('vendor_profiles', 'sub_lapsed_notified_for', 'DATETIME NULL');
   // Does an inverter already contain the solar charge controller (most hybrid inverters do)? If not, buyers are told to add one.
   await addColumn('products', 'includes_controller', 'TINYINT(1) NOT NULL DEFAULT 1');
 }

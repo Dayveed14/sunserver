@@ -57,4 +57,10 @@ export const updateProfile = asyncHandler(async (req, res) => {
   res.json({ user: await authService.updateProfile(req.user.id, req.valid) });
 });
 
+export const changePassword = asyncHandler(async (req, res) => {
+  await authService.changePassword(req.user.id, req.valid);
+  setSessionCookie(res, await authService.sessionUser(req.user.id)); // other devices are signed out; this one stays in
+  res.json({ ok: true });
+});
+
 export const areas = (req, res) => res.json(publicGeo());

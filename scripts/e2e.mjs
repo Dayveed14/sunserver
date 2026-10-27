@@ -665,6 +665,105 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   void nPanels;
 }
 
+// ---------- partners, subscription, change password, admin user detail ----------
+{
+  const stampB = Date.now();
+  const anon = client();
+  const unpublished = await signUp('vendor', 'Hidden Pending Co', `e2e-pending-${stampB}@example.test`, { vendorType: 'seller', unverified: true });
+  void unpublished;
+  const subSeller = await signUp('vendor', `Monthly Seller ${stampB}`, `e2e-subseller-${stampB}@example.test`, { vendorType: 'seller' });
+  const mkProduct = (api, name) => api('POST', '/vendor/products', { category: 'cable', name, price: 25000, inStock: true, status: 'active' });
+  assert.equal((await mkProduct(subSeller, 'Sub cable A')).status, 201, 'with the subscription switched off a verified vendor posts freely');
+
+  // --- partners directory: only approved, public-safe facts
+  let pub = await anon('GET', '/partners');
+  assert.equal(pub.status, 200);
+  const names = pub.body.partners.map((p) => p.name);
+  assert.ok(names.includes(`Monthly Seller ${stampB} Ltd`), 'a verified seller is listed');
+  assert.ok(!names.some((n) => /Hidden Pending/.test(n)), 'a vendor waiting for approval is not listed');
+  assert.ok(pub.body.partners.every((p) => !('email' in p) && !('phone' in p) && !('address' in p) && !('line' in p)), 'no private details are published');
+  assert.ok(pub.body.partners.find((p) => p.name === `Monthly Seller ${stampB} Ltd`).stateName === 'Lagos');
+  step('the public partners list shows approved vendors and installers only, with no private details');
+
+  // --- switch the subscription on: sellers 20,000 a month
+  assert.equal((await admin('PUT', '/admin/settings', { changes: { vendorSubscriptionSeller: 20000, subscriptionGraceDays: 7 } })).status, 200);
+  const st0 = await subSeller('GET', '/vendor/subscription');
+  assert.equal(st0.status, 200);
+  assert.equal(st0.body.state, 'never');
+  assert.equal(st0.body.monthlyPrice, 20000);
+  assert.equal((await mkProduct(subSeller, 'Sub cable B')).status, 402, 'an unsubscribed vendor cannot post');
+  assert.equal((await mkProduct(subSeller, 'Sub cable B')).body.error.code, 'SUBSCRIPTION_REQUIRED');
+  const shopNow = await anon('GET', '/shop/products?state=lagos&limit=100');
+  assert.ok(!JSON.stringify(shopNow.body).includes('Sub cable A'), 'an unsubscribed vendor is hidden from the shop');
+  assert.ok(!(await anon('GET', '/partners')).body.partners.some((p) => p.name === `Monthly Seller ${stampB} Ltd`), 'and from the partners list');
+  assert.equal((await subSeller('POST', '/vendor/subscription/start', { months: 5 })).status, 400);
+
+  // --- pay (simulation mode): 3 months
+  const started = await subSeller('POST', '/vendor/subscription/start', { months: 3 });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  assert.equal(started.body.amount, 60000);
+  assert.match(started.body.reference, /^SUB-/);
+  assert.equal((await buyer('POST', '/vendor/subscription/mock-pay', { reference: started.body.reference })).status, 403, 'only vendors can use it');
+  const paid = await subSeller('POST', '/vendor/subscription/mock-pay', { reference: started.body.reference });
+  assert.equal(paid.status, 200, JSON.stringify(paid.body));
+  assert.equal(paid.body.status, 'paid');
+  assert.equal((await subSeller('POST', '/vendor/subscription/verify', { reference: started.body.reference })).body.status, 'paid');
+  const st1 = (await subSeller('GET', '/vendor/subscription')).body;
+  assert.equal(st1.state, 'active');
+  assert.equal(st1.history.length, 1, 'a payment reported twice is counted once');
+  assert.ok(st1.daysLeft >= 89 && st1.daysLeft <= 90);
+  assert.equal((await mkProduct(subSeller, 'Sub cable C')).status, 201, 'paid up: posting works again');
+  assert.ok((await anon('GET', '/partners')).body.partners.some((p) => p.name === `Monthly Seller ${stampB} Ltd`));
+  const webhookRows = await query("SELECT COUNT(*) n FROM subscription_payments WHERE reference = ? AND status = 'success'", [started.body.reference]);
+  assert.equal(Number(webhookRows[0].n), 1);
+  step('subscription: off by default; when on, unsubscribed vendors cannot post and vanish from shop and partners; paying 3 months brings them back, counted once');
+
+  // --- a lapsed vendor (paid-up date long past) is hidden again; the admin can give free days
+  await query("UPDATE vendor_profiles vp JOIN users u ON u.id = vp.user_id SET vp.subscription_paid_until = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY) WHERE u.email = ?", [`e2e-subseller-${stampB}@example.test`]);
+  assert.equal((await subSeller('GET', '/vendor/subscription')).body.state, 'lapsed');
+  assert.equal((await mkProduct(subSeller, 'Sub cable D')).status, 402);
+  const sid = (await query('SELECT id FROM users WHERE email = ?', [`e2e-subseller-${stampB}@example.test`]))[0].id;
+  assert.equal((await vendor('POST', `/admin/subscriptions/${sid}/grant`, { days: 5 })).status, 403, 'only the admin can give days');
+  assert.equal((await admin('POST', `/admin/subscriptions/${sid}/grant`, { days: 0 })).status, 400);
+  assert.equal((await admin('POST', `/admin/subscriptions/${sid}/grant`, { days: 10 })).status, 200);
+  assert.equal((await subSeller('GET', '/vendor/subscription')).body.state, 'active');
+  const list = await admin('GET', '/admin/subscriptions');
+  assert.equal(list.status, 200);
+  assert.ok(list.body.vendors.some((v) => v.vendorId === Number(sid) && v.state === 'active'));
+  step('a lapsed vendor is hidden; admin free days restore them and are listed');
+  // back to free, so nothing below depends on it
+  assert.equal((await admin('PUT', '/admin/settings', { changes: { vendorSubscriptionSeller: null, subscriptionGraceDays: null } })).status, 200);
+
+  // --- change password, for any role
+  const pwEmail = `e2e-pw-${stampB}@example.test`;
+  const pw = await signUp('individual', 'Pat Password', pwEmail);
+  assert.equal((await client()('POST', '/auth/change-password', { currentPassword: 'x', newPassword: 'Another1long' })).status, 401, 'signed-in only');
+  assert.equal((await pw('POST', '/auth/change-password', { currentPassword: 'wrong-password1', newPassword: 'Another1long' })).body.error.code, 'WRONG_PASSWORD');
+  assert.equal((await pw('POST', '/auth/change-password', { currentPassword: 'Passw0rd!long', newPassword: 'short' })).status, 400);
+  assert.equal((await pw('POST', '/auth/change-password', { currentPassword: 'Passw0rd!long', newPassword: 'Passw0rd!long' })).body.error.code, 'SAME_PASSWORD');
+  const other = client();
+  assert.equal((await other('POST', '/auth/login', { email: pwEmail, password: 'Passw0rd!long' })).status, 200);
+  assert.equal((await pw('POST', '/auth/change-password', { currentPassword: 'Passw0rd!long', newPassword: 'Another1long' })).status, 200);
+  assert.equal((await pw('GET', '/auth/me')).status, 200, 'this device stays signed in');
+  assert.equal((await other('GET', '/auth/me')).status, 401, 'other devices are signed out');
+  assert.equal((await client()('POST', '/auth/login', { email: pwEmail, password: 'Passw0rd!long' })).status, 401, 'the old password stops working');
+  assert.equal((await client()('POST', '/auth/login', { email: pwEmail, password: 'Another1long' })).status, 200);
+  assert.equal((await admin('POST', '/auth/change-password', { currentPassword: 'not-the-admin-password1', newPassword: 'Another1long' })).status, 400, 'the admin can use it too');
+  step('change password: needs the current one, refuses weak or unchanged, signs other devices out, works for every role');
+
+  // --- admin user detail with documents
+  const users = await admin('GET', `/admin/users?q=${encodeURIComponent(`Monthly Seller ${stampB}`)}`);
+  const u = users.body.users.find((x) => x.email === `e2e-subseller-${stampB}@example.test`);
+  assert.ok(u && u.createdAt && u.verification === 'verified' && u.vendorType === 'seller' && u.phone && u.address);
+  const det = await admin('GET', `/admin/users/${u.id}`);
+  assert.equal(det.status, 200);
+  assert.ok(Array.isArray(det.body.documents) && det.body.user.stats.products >= 2);
+  assert.equal((await vendor('GET', `/admin/users/${u.id}`)).status, 403);
+  assert.equal((await admin('GET', '/admin/users/99999999')).status, 404);
+  assert.ok(!JSON.stringify(det.body).includes('password'), 'no password hash is ever returned');
+  step('admin sees full account details, counts and documents; nobody else can; no password data leaks');
+}
+
 server.close();
 await pool.end();
 realLog('\nAll end-to-end checks passed.');

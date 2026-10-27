@@ -39,6 +39,10 @@ import { createNotifier } from './notifier.js';
 import { createOffersService } from './offers.service.js';
 import { createOrdersService } from './orders.service.js';
 import { createRegistrationFeeService } from './registrationFee.service.js';
+import { createPartnersService } from './partners.service.js';
+import { partnersModel } from '../models/partners.js';
+import { createSubscriptionService } from './subscription.service.js';
+import { subscriptionsModel } from '../models/subscriptions.js';
 import { createVerificationService } from './verification.service.js';
 import { createBlogService } from './blog.service.js';
 import { createInstallationsService } from './installations.service.js';
@@ -124,6 +128,13 @@ export const registrationFeeService = createRegistrationFeeService({
   config: { required: VENDOR_REGISTRATION_FEE_REQUIRED, callbackUrl: `${clientUrl}/vendor/fee/return` },
 });
 
+export const subscriptionService = createSubscriptionService({
+  subscriptionsModel, paystack, notifier, auditModel, rules: FEE_RULES,
+  config: { callbackUrl: `${clientUrl}/vendor/subscription/return` },
+});
+
+export const partnersService = createPartnersService({ partnersModel });
+
 export const verificationService = createVerificationService({ vendorsModel, installersModel, documentsModel, usersModel, auditModel, cloudinary, notifier });
 
 // INSTALL_RULES is the live object the admin's Pricing page edits, so a new price applies to the next quote.
@@ -135,6 +146,7 @@ export const installationsService = createInstallationsService({
 export const blogService = createBlogService({ articlesModel, imagesModel, auditModel });
 
 export const adminService = createAdminService({
+  documentsModel,
   registry: settingsRegistry, settingsModel, auditModel, usersModel, vendorsModel, productsModel, imagesModel,
   afterSettingsSaved: async (keys) => {
     if (keys.some((k) => k.startsWith('delivery'))) await deliveryFeesService.recomputeAll();
@@ -145,6 +157,7 @@ export const adminService = createAdminService({
 export function startHousekeeping() {
   const tick = () => {
     ordersService.housekeeping().catch((err) => console.error('[orders] housekeeping failed:', err.message));
+    subscriptionService.housekeeping().catch((err) => console.error('[subscription] housekeeping failed:', err.message));
     installationsService.housekeeping().catch((err) => console.error('[install] housekeeping failed:', err.message));
   };
   const timer = setInterval(tick, env.checkout.housekeepingMinutes * 60 * 1000);

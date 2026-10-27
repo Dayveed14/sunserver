@@ -19,6 +19,9 @@ export const listUsers = asyncHandler(async (req, res) => {
   const role = ['individual', 'business', 'vendor', 'installer', 'admin'].includes(req.query.role) ? req.query.role : undefined;
   res.json(await svc.listUsers({ role, q: queryText(req.query.q, 80) ?? '' }));
 });
+export const getUser = asyncHandler(async (req, res) => {
+  res.json(await svc.userDetail(numId(req.params.id)));
+});
 export const setUserStatus = asyncHandler(async (req, res) => {
   const id = numId(req.params.id);
   if (id === req.user.id) throw new HttpError(400, 'FORBIDDEN_TARGET', 'You cannot change your own account.');

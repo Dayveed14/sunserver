@@ -3,7 +3,7 @@ import { HttpError } from '../lib/httpError.js';
 const VERIFICATION = ['pending', 'verified', 'rejected'];
 
 // Admin-only rules. Models and the settings registry are injected so everything here can be tested without a database.
-export function createAdminService({ registry, settingsModel, auditModel, usersModel, vendorsModel, productsModel = null, imagesModel = null, afterSettingsSaved = async () => {} }) {
+export function createAdminService({ registry, settingsModel, auditModel, usersModel, vendorsModel, productsModel = null, imagesModel = null, documentsModel = null, afterSettingsSaved = async () => {} }) {
   const notFound = (what) => new HttpError(404, 'NOT_FOUND', `${what} not found.`);
 
   async function listSettings() {
@@ -79,6 +79,14 @@ export function createAdminService({ registry, settingsModel, auditModel, usersM
       await vendorsModel.setVerification(vendorId, status);
       await auditModel.add({ adminId, action: 'vendor.verification', target: `vendor:${vendorId}`, detail: { from: before, to: status } });
       return { userId: vendorId, verification: status };
+    },
+
+    // One account in full: contact details, location, verification state, counts and the documents they uploaded.
+    async userDetail(userId) {
+      const user = await usersModel.adminDetail(userId);
+      if (!user) throw notFound('User');
+      const documents = documentsModel ? await documentsModel.listFor(userId) : [];
+      return { user, documents };
     },
 
     listUsers: async (filter) => ({ users: await usersModel.listForAdmin(filter) }),

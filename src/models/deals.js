@@ -1,10 +1,11 @@
+import { stateOf, subscriptionOkSql } from '../utils/subscription.js';
 import { query, withTransaction } from '../db/pool.js';
 
 const SELECT = `
   SELECT d.id, d.vendor_id, d.title, d.description, d.installation_included, d.warranty_years,
          d.buy_price, d.lease_deposit, d.lease_monthly, d.lease_months, d.rent_monthly,
          d.eaas_monthly, d.eaas_months, d.status, d.created_at, d.updated_at,
-         v.company_name AS vendor_name, v.verification_status AS vendor_verification,
+         v.company_name AS vendor_name, v.verification_status AS vendor_verification, v.vendor_type, v.subscription_paid_until,
          di.image_id, va.state AS vendor_state, va.area_id AS vendor_area
   FROM deals d
   JOIN vendor_profiles v ON v.user_id = d.vendor_id
@@ -19,6 +20,7 @@ const toDeal = (r) => ({
   vendorName: r.vendor_name,
   vendorVerified: r.vendor_verification === 'verified',
   vendorVerification: r.vendor_verification,
+  vendorSubscriptionOk: stateOf({ vendorType: r.vendor_type, paidUntil: r.subscription_paid_until }).ok,
   vendorState: r.vendor_state ?? null,
   vendorArea: r.vendor_area ?? null,
   imageId: r.image_id == null ? null : Number(r.image_id),
@@ -142,7 +144,7 @@ export const dealsModel = {
 
   async findActive(id, { requireVerified }) {
     const rows = await query(
-      `${SELECT} WHERE d.id = ? AND d.status = 'active' AND ${requireVerified ? "v.verification_status = 'verified'" : "v.verification_status <> 'rejected'"} LIMIT 1`,
+      `${SELECT} WHERE d.id = ? AND d.status = 'active' AND ${requireVerified ? `v.verification_status = 'verified' AND ${subscriptionOkSql('v')}` : "v.verification_status <> 'rejected'"} LIMIT 1`,
       [id]
     );
     const [deal] = await attachItems(rows.map(toDeal));
@@ -151,7 +153,7 @@ export const dealsModel = {
 
   async listActive({ requireVerified, state }) {
     const rows = await query(
-      `${SELECT} WHERE d.status = 'active' AND ${requireVerified ? "v.verification_status = 'verified'" : "v.verification_status <> 'rejected'"}${state ? ' AND va.state = ?' : ''} ORDER BY d.id DESC LIMIT 1000`,
+      `${SELECT} WHERE d.status = 'active' AND ${requireVerified ? `v.verification_status = 'verified' AND ${subscriptionOkSql('v')}` : "v.verification_status <> 'rejected'"}${state ? ' AND va.state = ?' : ''} ORDER BY d.id DESC LIMIT 1000`,
       state ? [state] : []
     );
     return attachItems(rows.map(toDeal));
