@@ -35,7 +35,7 @@ jobs:
         run: npm test
       - name: Create the database from scratch
         run: npm run db:init
-      - name: End-to-end (real database: sign-up, orders, payments, deals)
+      - name: "End-to-end (real database - sign-up, orders, payments, deals)"
         run: npm run e2e
       - name: Security (access control, sessions, Paystack, order states)
         run: npm run e2e:security
