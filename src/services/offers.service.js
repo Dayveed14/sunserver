@@ -1,7 +1,9 @@
 import { eaasOffered } from '../config/launch.js';
 import { HttpError } from '../lib/httpError.js';
+import { allInOneOptions, cheapestSystem, evaluateBudget, EXTRAS_INFO } from '../utils/budget.js';
 import { isCore } from '../utils/productCategories.js';
 import {
+  EXTRA_CATEGORIES,
   PLANS,
   dealFit,
   dealSpecs,
@@ -28,6 +30,7 @@ export const publicProduct = (p) => ({
   rating: p.rating,
   systemVoltage: p.systemVoltage,
   batteryType: p.batteryType,
+  includesController: p.includesController,
   price: p.price,
   inStock: p.inStock,
   warrantyYears: p.warrantyYears,
@@ -49,6 +52,8 @@ export const publicDeal = (deal) => ({
     rating: i.rating, systemVoltage: i.systemVoltage, qty: i.qty,
   })),
 });
+
+const CORE = ['panel', 'inverter', 'battery'];
 
 export function createOffersService({ productsModel, dealsModel, requestsModel, assessmentsModel, config }) {
   const visible = vendorVisible(config.requireVerified);
@@ -90,8 +95,9 @@ export function createOffersService({ productsModel, dealsModel, requestsModel, 
     async getOffers(userId, assessmentId, plan, role) {
       if (!PLANS.includes(plan)) throw bad('VALIDATION_ERROR', 'Choose buy, lease, rent or energy as a service.');
       if (plan === 'eaas' && !eaasOffered(role)) throw bad('NOT_AVAILABLE', 'Energy as a service is offered to business accounts only.');
-      const { result, requirement, baseline } = await loadAssessment(userId, assessmentId);
+      const { row, result, requirement, baseline } = await loadAssessment(userId, assessmentId);
       const deals = (await dealsModel.listActive(verifiedOpt)).filter(visible);
+      const budget = Number.isFinite(row.input_json?.budget) && row.input_json.budget > 0 ? row.input_json.budget : null;
 
       const counts = {};
       for (const p of PLANS) if (p !== 'eaas' || eaasOffered(role)) counts[p] = matchDeals(requirement, deals, p, baseline).length;
@@ -108,15 +114,39 @@ export function createOffersService({ productsModel, dealsModel, requestsModel, 
       };
 
       // Parts-by-parts is only meaningful when buying outright.
+      let system = null;
+      let allInOne = null;
       if (plan === 'buy') {
-        const products = (await productsModel.listBuyable(verifiedOpt)).filter(visible).filter((p) => isCore(p.category));
+        const all = (await productsModel.listBuyable({ ...verifiedOpt, categories: [...CORE, ...EXTRA_CATEGORIES, 'kit', 'portable_power'] })).filter(visible);
+        const products = all.filter((p) => isCore(p.category));
         const opts = diyOptions(requirement, products);
         out.diy = {
           panels: opts.panels.map((o) => ({ ...publicProduct(o.product), qty: o.qty })),
           inverters: opts.inverters.map((o) => ({ ...publicProduct(o.product), qty: o.qty })),
           batteries: opts.batteries.map((o) => ({ ...publicProduct(o.product), qtyByVoltage: o.qtyByVoltage })),
         };
+        // The rest of a complete system: wiring, mounting, protection and (for plain inverters) a charge controller.
+        out.extras = EXTRA_CATEGORIES.map((category) => ({
+          category, ...EXTRAS_INFO[category],
+          products: all.filter((p) => p.category === category).sort((a, b) => a.price - b.price).slice(0, 12).map(publicProduct),
+        })).filter((g) => g.products.length > 0 || g.category !== 'controller');
+        system = cheapestSystem(requirement, all);
+        allInOne = allInOneOptions(requirement, all);
+        const mapAio = (list) => list.map((o) => ({ ...publicProduct(o.product), coveragePct: o.coverage, fit: o.fit }));
+        out.allInOne = { kits: mapAio(allInOne.kits), portable: mapAio(allInOne.portable), peakKva: requirement.inverterKva };
+        out.cheapestSystem = system && {
+          total: system.total, coreTotal: system.coreTotal, extrasTotal: system.extrasTotal, estimatedExtras: system.estimatedExtras,
+          missingExtras: system.missingExtras, lines: system.lines.map((l) => ({ category: l.category, name: l.product.name, qty: l.qty, price: l.product.price })),
+          extras: system.extras.map((e) => ({ category: e.category, name: e.product.name, qty: e.qty, price: e.product.price })),
+        };
       }
+      const otherPlans = [];
+      for (const other of PLANS) {
+        if (other === plan || (other === 'eaas' && !eaasOffered(role))) continue;
+        const best = matchDeals(requirement, deals, other, baseline)[0];
+        if (best) otherPlans.push({ plan: other, upfront: best.offer.upfront ?? 0, monthly: best.offer.monthly, dealTitle: best.deal.title });
+      }
+      out.budget = evaluateBudget({ budget, plan, deals: matches, system, allInOne, otherPlans, result });
       return out;
     },
 

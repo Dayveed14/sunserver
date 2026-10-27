@@ -30,7 +30,7 @@ export const archiveDeal = asyncHandler(async (req, res) => {
 
 // ---- Lease and energy-as-a-service pricing ----
 export const leasePreview = (req, res) => res.json(catalogService.leasePreview(req.valid));
-export const eaasRules = (req, res) => res.json(catalogService.eaasRules());
+export const eaasRules = asyncHandler(async (req, res) => res.json(await catalogService.eaasRules(req.user.id)));
 export const eaasPreview = asyncHandler(async (req, res) => res.json(await catalogService.previewEaas(req.user.id, req.valid)));
 
 // ---- Requests from customers ----

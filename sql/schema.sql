@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   email                 VARCHAR(254)  NOT NULL,
   password_hash         VARCHAR(100)  NOT NULL,
-  role                  ENUM('individual','business','vendor','admin') NOT NULL,
+  role                  ENUM('individual','business','vendor','admin','installer') NOT NULL,
   full_name             VARCHAR(120)  NOT NULL,
   phone                 VARCHAR(20)   NULL,
   email_verified_at     DATETIME      NULL,

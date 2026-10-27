@@ -4,6 +4,7 @@ import { DELIVERY_RULES } from './delivery.js';
 import { SLA_RULES } from './sla.js';
 import { LEASE_RULES } from './lease.js';
 import { FEE_RULES } from './fees.js';
+import { INSTALL_RULES } from './installRules.js';
 
 // The numbers an admin may change without a code release. Each entry points at a value inside the live
 // pricing objects, so a saved change takes effect on the next assessment or offer. Percentages are stored as
@@ -43,6 +44,16 @@ const DEFS = [
   ['vendorRegistrationFee', 'Vendor registration fee (one-time)', 'Solalium fees', 'naira', 'F', ['vendorRegistrationFee'], 0, 5000000, '₦ once per vendor, when registration is switched to paid'],
   ['customerServicePct', 'Service charge added for the customer', 'Solalium fees', 'pct', 'F', ['customerServicePct'], 0, 0.3, 'of the items bought'],
   ['vendorCommissionPct', 'Platform fee held back from the vendor', 'Solalium fees', 'pct', 'F', ['vendorCommissionPct'], 0, 0.3, 'of the items sold'],
+  // Installation by a Solalium installer
+  ['installPriceB1', 'Installation, up to 1 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b1'], 5000, 5000000, '₦ the customer pays'],
+  ['installPriceB2', 'Installation, over 1 kW to 3 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b2'], 5000, 5000000, '₦ the customer pays'],
+  ['installPriceB3', 'Installation, over 3 kW to 5 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b3'], 5000, 5000000, '₦ the customer pays'],
+  ['installPriceB4', 'Installation, over 5 kW to 10 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b4'], 5000, 10000000, '₦ the customer pays'],
+  ['installPriceB5', 'Installation, over 10 kW to 20 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b5'], 5000, 20000000, '₦ the customer pays'],
+  ['installPriceB6', 'Installation, over 20 kW to 50 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b6'], 5000, 50000000, '₦ the customer pays'],
+  ['installPayoutPct', 'Installer share of the fee', 'Installation (installer jobs)', 'pct', 'I', ['payoutPct'], 0.1, 0.95, 'of the installation fee'],
+  ['installAlertMinutes', 'Alert the admin if nobody accepts within', 'Installation (installer jobs)', 'number', 'I', ['alertMinutes'], 5, 2880, 'minutes'],
+  ['installAutoCloseHours', 'Close a finished job by itself after', 'Installation (installer jobs)', 'number', 'I', ['autoCloseHours'], 1, 168, 'hours, if the customer does not confirm'],
   // Lease to own: pay small small
   ['leaseMarkup3', 'Mark-up on a 3-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '3'], 0, 1, 'over the cash price'],
   ['leaseMarkup4', 'Mark-up on a 4-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '4'], 0, 1, 'over the cash price'],
@@ -75,8 +86,8 @@ function write(obj, path, value) {
 }
 
 // A registry works on the objects it is given, so tests can use copies and production uses the real ones.
-export function createSettingsRegistry({ assumptions, eaasRules, deliveryRules = structuredClone(DELIVERY_RULES), slaRules = structuredClone(SLA_RULES), leaseRules = structuredClone(LEASE_RULES), feeRules = structuredClone(FEE_RULES) }) {
-  const roots = { A: assumptions, E: eaasRules, D: deliveryRules, S: slaRules, L: leaseRules, F: feeRules };
+export function createSettingsRegistry({ assumptions, eaasRules, deliveryRules = structuredClone(DELIVERY_RULES), slaRules = structuredClone(SLA_RULES), leaseRules = structuredClone(LEASE_RULES), feeRules = structuredClone(FEE_RULES), installRules = structuredClone(INSTALL_RULES) }) {
+  const roots = { A: assumptions, E: eaasRules, D: deliveryRules, S: slaRules, L: leaseRules, F: feeRules, I: installRules };
   const defs = DEFS.map(([key, label, group, unit, root, path, min, max, note]) => ({ key, label, group, unit, root, path, min, max, note }));
   const byKey = new Map(defs.map((d) => [d.key, d]));
   const defaults = Object.fromEntries(defs.map((d) => [d.key, read(roots[d.root], d.path)]));
@@ -129,4 +140,5 @@ export const settingsRegistry = createSettingsRegistry({
   slaRules: SLA_RULES,
   leaseRules: LEASE_RULES,
   feeRules: FEE_RULES,
+  installRules: INSTALL_RULES,
 });

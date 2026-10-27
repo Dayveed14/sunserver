@@ -158,6 +158,73 @@ export function createNotifier({ mailer, config, tokens, now = () => new Date() 
       await send(adminEmail, { subject: `REFUND NEEDED · ${d.ref}`, heading: `Refund needed for ${d.ref}`, lines: [`${d.vendorName} declined. Refund ${naira(Number(ctx.vo.subtotal) + Number(ctx.vo.serviceCharge ?? 0) + Number(ctx.vo.deliveryFee))} to ${d.customerName}.`] });
     },
 
+    // ---- verification (vendors and installers) ----
+    async verification_submitted({ who, kind }) {
+      await send(adminEmail, { subject: `${kind} awaiting review · ${who}`, heading: `${kind} awaiting review`, lines: [`${who} has sent details for review.`], button: { label: 'Open the review queue', url: link('/admin/vendors') } });
+    },
+    async verification_decided({ user, approved, note, subject }) {
+      await send(user.email, {
+        subject: approved ? `You are verified · ${subject}` : `Your verification needs attention · ${subject}`,
+        heading: approved ? 'You are verified' : 'We could not approve you yet',
+        lines: approved
+          ? [`Hi ${user.fullName}, your account has been approved. You can now use your dashboard.`]
+          : [`Hi ${user.fullName}, we could not approve your account yet.`, note ? `Reason: ${note}` : 'Please check your documents and send them again.'],
+        button: { label: 'Open your dashboard', url: link('/app') },
+      });
+    },
+    async installer_quiz_submitted({ who }) {
+      await send(adminEmail, { subject: `Installer quiz received · ${who}`, heading: 'An installer finished the quiz', lines: [`${who} has answered the technical questions and is waiting for your decision.`], button: { label: 'Review installers', url: link('/admin/installers') } });
+    },
+
+    // ---- installation requests ----
+    async install_paid({ request, customer }) {
+      await send(customer.email, {
+        subject: `Installation request paid · ${request.ref}`, heading: 'We are finding an installer',
+        lines: [`Hi ${customer.fullName}, we received your payment of ${naira(request.price)} for installation ${request.ref}.`, 'We have sent your job to approved installers in your state. You will get an email the moment one accepts.'],
+        button: { label: 'Track your request', url: link(`/app/installations/${request.ref}`) },
+      });
+      await send(adminEmail, { subject: `Paid installation ${request.ref} · ${naira(request.price)}`, heading: `New installation ${request.ref}`, lines: [`${customer.fullName} paid ${naira(request.price)} for ${request.systemKw} kW (${request.bandLabel}).`, `Place: ${place(request.state, request.areaId)}. Preferred date: ${request.preferredDate}.`], button: { label: 'Open installations', url: link('/app/admin-installations') } });
+    },
+    async install_new_job({ request, installer, offer }) {
+      await send(installer.email, {
+        subject: `New installation job · ${offer.area} · ${naira(offer.pay)}`, heading: 'A new installation job',
+        lines: [`Hi ${installer.fullName}, a customer needs an installation.`, `What: ${offer.description}`, `Size: ${offer.systemKw} kW (${offer.bandLabel}). Area: ${offer.area}.`, `Customer's date: ${offer.preferredDate}. You earn ${naira(offer.pay)}.`, 'The first approved installer to accept gets the job. You will see the full address after you accept.'],
+        button: { label: 'View the job', url: link('/app') },
+      });
+    },
+    async install_assigned({ request, customer, installer, job }) {
+      await send(customer.email, {
+        subject: `An installer accepted · ${request.ref}`, heading: 'Your installer is confirmed',
+        lines: [`Hi ${customer.fullName}, ${installer.fullName} will install your system on or around ${request.preferredDate}.`, installer.phone ? `Their number: ${installer.phone}.` : 'They will contact you shortly.', 'When they finish, they will mark the job done and you will be asked to confirm.'],
+        button: { label: 'Track your request', url: link(`/app/installations/${request.ref}`) },
+      });
+      await send(installer.email, {
+        subject: `You got the job · ${request.ref}`, heading: 'The job is yours',
+        lines: [`Address: ${job.address}`, `Customer: ${job.customer.name}, ${job.customer.phone}`, `Date: ${request.preferredDate}. What: ${request.description}`, `You earn ${naira(request.installerPayout)} once the customer confirms (or 12 hours after you mark it done).`],
+        button: { label: 'Open the job', url: link('/app') },
+      });
+      await send(adminEmail, { subject: `Installation ${request.ref} accepted`, heading: 'Installer assigned', lines: [`${installer.fullName} accepted ${request.ref} (${place(request.state, request.areaId)}).`] });
+    },
+    async install_unfilled({ request, reason }) {
+      await send(adminEmail, { subject: `NO INSTALLER YET · ${request.ref}`, heading: `Installation ${request.ref} needs you`, lines: [reason, `Paid ${naira(request.price)} for ${request.systemKw} kW in ${place(request.state, request.areaId)}, date ${request.preferredDate}.`, 'Find an installer by hand, or cancel the job and refund the customer.'], button: { label: 'Open installations', url: link('/app/admin-installations') } });
+    },
+    async install_done({ request, customer, hours }) {
+      await send(customer.email, {
+        subject: `Installation finished? · ${request.ref}`, heading: 'Your installer says the job is done',
+        lines: [`Hi ${customer.fullName}, please check the work and confirm it is complete.`, `If we do not hear from you within ${hours} hours, the job closes automatically and the installer is paid.`],
+        button: { label: 'Confirm the job', url: link(`/app/installations/${request.ref}`) },
+      });
+    },
+    async install_completed({ request, customer, installer, auto }) {
+      await send(customer.email, { subject: `Installation closed · ${request.ref}`, heading: 'Installation complete', lines: [auto ? 'The job closed automatically because we did not hear back after the installer finished.' : 'Thank you for confirming.', 'Thanks for using Solalium.'] });
+      if (installer) await send(installer.email, { subject: `Job closed · ${request.ref}`, heading: 'Job complete', lines: [`${request.ref} is closed. Your payout of ${naira(request.installerPayout)} is on its way.`] });
+      await send(adminEmail, { subject: `PAYOUT OWED · ${request.ref}`, heading: 'Pay the installer', lines: [`Pay ${installer?.fullName ?? 'the installer'} ${naira(request.installerPayout)} for ${request.ref}.`], button: { label: 'Open installations', url: link('/app/admin-installations') } });
+    },
+    async install_cancelled({ request, customer, reason }) {
+      await send(customer.email, { subject: `Installation cancelled · ${request.ref}`, heading: 'Your installation was cancelled', lines: [`${reason ? `Reason: ${reason}. ` : ''}You will be refunded ${naira(request.price)}.`] });
+      await send(adminEmail, { subject: `REFUND NEEDED · ${request.ref}`, heading: `Refund needed for ${request.ref}`, lines: [`Refund ${naira(request.price)} to ${customer.fullName}.`] });
+    },
+
     async payment_problem({ order, reason, reference }) {
       await send(adminEmail, { subject: `Payment problem · ${order.publicRef}`, heading: `Payment problem on ${order.publicRef}`, lines: [reason, `Paystack reference: ${reference}. Check the payment and refund if needed.`] });
     },

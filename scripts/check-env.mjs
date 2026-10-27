@@ -21,7 +21,6 @@ if (!e.CLOUDINARY_URL && !(e.CLOUDINARY_CLOUD_NAME && e.CLOUDINARY_API_KEY && e.
 if (!e.LOGISTICS_EMAIL) warnings.push('LOGISTICS_EMAIL is not set: nobody is told to send a rider.');
 if (!e.ADMIN_NOTIFY_EMAIL) warnings.push('ADMIN_NOTIFY_EMAIL is not set: nobody gets payment-problem alerts.');
 if (!e.TRUST_PROXY || e.TRUST_PROXY === '0') warnings.push('TRUST_PROXY is 0: behind Render every visitor looks like the same IP, so one person can lock everyone out of login. Use 1 (Render only) or 2 (Vercel rewrite to Render).');
-if (e.VENDOR_APPROVAL_REQUIRED !== '1') warnings.push('VENDOR_APPROVAL_REQUIRED is not 1: unverified vendors are visible to customers.');
 if (e.DB_SSL === 'false' && !['127.0.0.1', 'localhost'].includes(e.DB_HOST)) warnings.push('DB_SSL=false with a remote database: traffic is not encrypted. TiDB Cloud requires SSL.');
 
 // live checks
@@ -35,6 +34,12 @@ else if (e.DB_HOST) {
     if (Number(rows[0].n) < 10) problems.push(`Connected, but the database has only ${rows[0].n} tables. Run "npm run db:init" once against it.`);
     const col = await query("SELECT COLUMN_TYPE t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'products' AND COLUMN_NAME = 'category'");
     if (col[0] && !String(col[0].t).includes("'kit'")) problems.push('products.category does not have the new product types yet. Run "npm run db:init" or server/sql/manual/add-product-categories.sql.');
+    const need10 = await query("SELECT COUNT(*) n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('verification_documents','installer_profiles','install_requests','articles')");
+    if (Number(need10[0].n) < 4) problems.push('The Phase 8 tables (verification, installations, blog) are missing. Run "npm run db:init".');
+    else {
+      const pend = await query("SELECT COUNT(*) n FROM vendor_profiles WHERE verification_status = 'pending'");
+      if (Number(pend[0].n)) warnings.push(`${pend[0].n} vendor(s) are waiting for approval (Admin > Vendors). Until approved they are hidden from the shop and cannot post.`);
+    }
     const admins = await query("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND status = 'active'");
     if (!Number(admins[0].n)) warnings.push('There is no admin account yet. Run "npm run create-admin".');
     await pool.end();

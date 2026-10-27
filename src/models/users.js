@@ -5,13 +5,16 @@ const SELECT_USER = `
   SELECT u.id, u.email, u.password_hash, u.role, u.full_name, u.phone, u.email_verified_at,
          u.status, u.token_version, u.failed_login_attempts, u.locked_until,
          COALESCE(b.company_name, v.company_name) AS company_name,
+         v.vendor_type, v.verification_status AS vendor_verification, v.verification_note AS vendor_note,
+         i.verification_status AS installer_verification, i.verification_note AS installer_note, i.quiz_submitted_at AS installer_quiz_at,
          a.address_line, a.state AS address_state, a.area_id AS address_area
   FROM users u
   LEFT JOIN business_profiles b ON b.user_id = u.id
   LEFT JOIN vendor_profiles v ON v.user_id = u.id
+  LEFT JOIN installer_profiles i ON i.user_id = u.id
   LEFT JOIN addresses a ON a.user_id = u.id`;
 
-const ROLE_ORDER = { admin: 0, individual: 1, business: 2, vendor: 3 };
+const ROLE_ORDER = { admin: 0, individual: 1, business: 2, vendor: 3, installer: 4 };
 const byRole = (a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role];
 
 async function writeAddress(conn, userId, address) {
@@ -23,13 +26,15 @@ async function writeAddress(conn, userId, address) {
   );
 }
 
-async function insertProfile(conn, userId, role, companyName, feeStatus = 'waived') {
+async function insertProfile(conn, userId, role, companyName, feeStatus = 'waived', vendorType = 'seller') {
   if (role === 'individual') {
     await conn.execute('INSERT INTO individual_profiles (user_id) VALUES (?)', [userId]);
   } else if (role === 'business') {
     await conn.execute('INSERT INTO business_profiles (user_id, company_name) VALUES (?, ?)', [userId, companyName]);
   } else if (role === 'vendor') {
-    await conn.execute('INSERT INTO vendor_profiles (user_id, company_name, registration_fee_status) VALUES (?, ?, ?)', [userId, companyName, feeStatus]);
+    await conn.execute('INSERT INTO vendor_profiles (user_id, company_name, registration_fee_status, vendor_type) VALUES (?, ?, ?, ?)', [userId, companyName, feeStatus, vendorType]);
+  } else if (role === 'installer') {
+    await conn.execute('INSERT INTO installer_profiles (user_id) VALUES (?)', [userId]);
   }
 }
 
@@ -51,14 +56,14 @@ export const usersModel = {
   },
 
   // `verifiedAt` is set when the person has already proved this email (they hold another account on it).
-  async create({ email, passwordHash, role, fullName, phone, companyName, address, verifiedAt, registrationFeeStatus }) {
+  async create({ email, passwordHash, role, fullName, phone, companyName, address, verifiedAt, registrationFeeStatus, vendorType }) {
     try {
       return await withTransaction(async (conn) => {
         const [res] = await conn.execute(
           'INSERT INTO users (email, password_hash, role, full_name, phone, email_verified_at) VALUES (?, ?, ?, ?, ?, ?)',
           [email, passwordHash, role, fullName, phone ?? null, verifiedAt ?? null]
         );
-        await insertProfile(conn, res.insertId, role, companyName, registrationFeeStatus);
+        await insertProfile(conn, res.insertId, role, companyName, registrationFeeStatus, vendorType);
         await writeAddress(conn, res.insertId, address);
         return res.insertId;
       });
@@ -71,16 +76,17 @@ export const usersModel = {
   },
 
   // Someone who started signing up but never verified may come back and register again.
-  async updatePendingRegistration(id, { passwordHash, role, fullName, phone, companyName, address, registrationFeeStatus }) {
+  async updatePendingRegistration(id, { passwordHash, role, fullName, phone, companyName, address, registrationFeeStatus, vendorType }) {
     await withTransaction(async (conn) => {
       await conn.execute('DELETE FROM individual_profiles WHERE user_id = ?', [id]);
       await conn.execute('DELETE FROM business_profiles WHERE user_id = ?', [id]);
       await conn.execute('DELETE FROM vendor_profiles WHERE user_id = ?', [id]);
+      await conn.execute('DELETE FROM installer_profiles WHERE user_id = ?', [id]);
       await conn.execute(
         'UPDATE users SET password_hash = ?, role = ?, full_name = ?, phone = ? WHERE id = ?',
         [passwordHash, role, fullName, phone ?? null, id]
       );
-      await insertProfile(conn, id, role, companyName, registrationFeeStatus);
+      await insertProfile(conn, id, role, companyName, registrationFeeStatus, vendorType);
       await writeAddress(conn, id, address);
     });
   },

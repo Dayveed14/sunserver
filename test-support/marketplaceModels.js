@@ -33,7 +33,7 @@ export function createMarketplaceModels() {
     async update(id, vendorId, d) { const p = products.find((x) => x.id === id && x.vendorId === vendorId); Object.assign(p, d); return true; },
     async archive(id, vendorId) { const p = products.find((x) => x.id === id && x.vendorId === vendorId); if (!p) return false; p.status = 'archived'; return true; },
     async countByVendor(vendorId) { return products.filter((p) => p.vendorId === vendorId && p.status !== 'archived').length; },
-    async listBuyable() { return products.filter((p) => p.status === 'active' && p.inStock && ['panel', 'inverter', 'battery'].includes(p.category)).map(decorate); },
+    async listBuyable({ categories = ['panel', 'inverter', 'battery'] } = {}) { return products.filter((p) => p.status === 'active' && p.inStock && categories.includes(p.category)).map(decorate); },
   };
 
   const dealsModel = {

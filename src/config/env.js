@@ -53,9 +53,6 @@ export const env = {
     from: process.env.MAIL_FROM ?? 'Solalium <onboarding@resend.dev>',
   },
 
-  // While there is no admin console, pending vendors are shown to customers. Set to 1 once vendors
-  // are verified by hand (verification_status = 'verified') and only those should appear.
-  vendorApprovalRequired: process.env.VENDOR_APPROVAL_REQUIRED === '1',
 
   paystack: { secretKey: process.env.PAYSTACK_SECRET_KEY ?? '' },
   // Product pictures. Either CLOUDINARY_URL (cloudinary://KEY:SECRET@CLOUD_NAME, as shown on your Cloudinary dashboard)

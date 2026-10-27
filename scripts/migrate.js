@@ -54,5 +54,18 @@ export async function migrate(conn, database = 'solalium') {
     await conn.query(`ALTER TABLE products MODIFY COLUMN category ENUM(${PRODUCT_CATEGORIES.map((c) => `'${c}'`).join(',')}) NOT NULL`);
     console.log('Migrated: products.category now accepts all solar product types.');
   }
-}
 
+  // Phase 8: installers are a new kind of account, and vendors come in two types and go through document verification.
+  const [roleCol] = await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'users' AND column_name = 'role'", [database]);
+  if (roleCol[0] && !roleCol[0].t.includes("'installer'")) {
+    await conn.query("ALTER TABLE users MODIFY COLUMN role ENUM('individual','business','vendor','admin','installer') NOT NULL");
+    console.log('Migrated: users.role now accepts installers.');
+  }
+  // 'seller' sells only. 'company' sells, installs and may offer Energy-as-a-Service. Everyone who joined before is a seller until the admin says otherwise.
+  await addColumn('vendor_profiles', 'vendor_type', "ENUM('seller','company') NOT NULL DEFAULT 'seller'");
+  await addColumn('vendor_profiles', 'documents_submitted_at', 'DATETIME NULL');
+  await addColumn('vendor_profiles', 'verification_note', 'VARCHAR(500) NULL');
+  await addColumn('vendor_profiles', 'verified_at', 'DATETIME NULL');
+  // Does an inverter already contain the solar charge controller (most hybrid inverters do)? If not, buyers are told to add one.
+  await addColumn('products', 'includes_controller', 'TINYINT(1) NOT NULL DEFAULT 1');
+}

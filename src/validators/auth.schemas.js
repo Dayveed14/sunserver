@@ -32,9 +32,14 @@ const addressSchema = z
   });
 export { addressSchema };
 
+// 'seller' sells only. 'company' sells, installs and can offer Energy-as-a-Service.
+const vendorType = z.enum(['seller', 'company'], { errorMap: () => ({ message: 'Choose how you work with Solalium' }) });
+const ROLES = ['individual', 'business', 'vendor', 'installer'];
+
 export const registerSchema = z
   .object({
-    role: z.enum(['individual', 'business', 'vendor']),
+    role: z.enum(ROLES),
+    vendorType: vendorType.optional(),
     fullName: z.string().trim().min(2, 'Enter your full name').max(120),
     companyName: z.string().trim().min(2, 'Enter the company name').max(160).optional(),
     email,
@@ -46,9 +51,12 @@ export const registerSchema = z
     if ((v.role === 'business' || v.role === 'vendor') && !v.companyName) {
       ctx.addIssue({ code: 'custom', path: ['companyName'], message: 'Enter the company name' });
     }
+    if (v.role === 'vendor' && !v.vendorType) {
+      ctx.addIssue({ code: 'custom', path: ['vendorType'], message: 'Choose how you work with Solalium' });
+    }
   });
 
-const roleOpt = z.enum(['individual', 'business', 'vendor']).optional();
+const roleOpt = z.enum(ROLES).optional();
 
 export const verifySchema = z.object({
   email,
@@ -71,12 +79,13 @@ export const resetSchema = z.object({
   password,
 });
 
-export const switchSchema = z.object({ role: z.enum(['individual', 'business', 'vendor']) });
+export const switchSchema = z.object({ role: z.enum(ROLES) });
 
 // Opening another account type while signed in. Company name is needed for business and vendor accounts.
 export const addAccountSchema = z
   .object({
-    role: z.enum(['individual', 'business', 'vendor']),
+    role: z.enum(ROLES),
+    vendorType: vendorType.optional(),
     companyName: z.string().trim().min(2, 'Enter the company name').max(160).optional(),
     fullName: z.string().trim().min(2).max(120).optional(),
     phone: phone.optional(),
@@ -85,6 +94,9 @@ export const addAccountSchema = z
   .superRefine((v, ctx) => {
     if ((v.role === 'business' || v.role === 'vendor') && !v.companyName) {
       ctx.addIssue({ code: 'custom', path: ['companyName'], message: 'Enter the company name' });
+    }
+    if (v.role === 'vendor' && !v.vendorType) {
+      ctx.addIssue({ code: 'custom', path: ['vendorType'], message: 'Choose how you work with Solalium' });
     }
   });
 

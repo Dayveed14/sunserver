@@ -1,9 +1,14 @@
 import adminRoutes from './admin.routes.js';
+import adminBlogRoutes from './adminBlog.routes.js';
+import adminInstallationsRoutes from './adminInstallations.routes.js';
 import adminOrdersRoutes from './adminOrders.routes.js';
 import analysisRoutes from './analysis.routes.js';
 import authRoutes from './auth.routes.js';
+import blogRoutes from './blog.routes.js';
 import dispatchRoutes from './dispatch.routes.js';
 import { adminUploadRouter, vendorUploadRouter, viewRouter } from './images.routes.js';
+import installerRoutes from './installer.routes.js';
+import installationsRoutes from './installations.routes.js';
 import offersRoutes from './offers.routes.js';
 import ordersRoutes from './orders.routes.js';
 import shopRoutes from './shop.routes.js';
@@ -23,9 +28,14 @@ export function mountRoutes(app) {
   app.use('/api/vendor/orders', vendorOrdersRoutes);
   app.use('/api/vendor', vendorRoutes);
   app.use('/api/admin/orders', adminOrdersRoutes);
+  app.use('/api/admin/installations', adminInstallationsRoutes);
+  app.use('/api/admin/blog', adminBlogRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/installer', installerRoutes);
+  app.use('/api/installations', installationsRoutes);
   app.use('/api/dispatch', dispatchRoutes);
   app.use('/api', ordersRoutes);
   app.use('/api/offers', offersRoutes);
   app.use('/api/shop', shopRoutes);
+  app.use('/api/blog', blogRoutes);
 }

@@ -13,13 +13,10 @@ export const listVendors = asyncHandler(async (req, res) => {
   const status = ['pending', 'verified', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
   res.json(await svc.listVendors({ status }));
 });
-export const setVendorVerification = asyncHandler(async (req, res) => {
-  res.json(await svc.setVendorVerification(req.user.id, numId(req.params.id), req.valid.status));
-});
 
 // ---- Users ----
 export const listUsers = asyncHandler(async (req, res) => {
-  const role = ['individual', 'business', 'vendor', 'admin'].includes(req.query.role) ? req.query.role : undefined;
+  const role = ['individual', 'business', 'vendor', 'installer', 'admin'].includes(req.query.role) ? req.query.role : undefined;
   res.json(await svc.listUsers({ role, q: queryText(req.query.q, 80) ?? '' }));
 });
 export const setUserStatus = asyncHandler(async (req, res) => {

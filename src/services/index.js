@@ -9,6 +9,10 @@ import { createCloudinary, parseCloudinaryUrl } from '../lib/cloudinary.js';
 import { createDispatchTokens } from '../lib/dispatchToken.js';
 import { createMailer } from '../lib/mailer.js';
 import { createPaystack } from '../lib/paystack.js';
+import { articlesModel } from '../models/articles.js';
+import { installationsModel } from '../models/installations.js';
+import { documentsModel } from '../models/documents.js';
+import { installersModel } from '../models/installers.js';
 import { assessmentsModel } from '../models/assessments.js';
 import { dealsModel } from '../models/deals.js';
 import { deliveryFeesModel } from '../models/deliveryFees.js';
@@ -23,6 +27,7 @@ import { usersModel } from '../models/users.js';
 import { vendorsModel } from '../models/vendors.js';
 import { DELIVERY_RULES } from '../utils/delivery.js';
 import { FEE_RULES } from '../utils/fees.js';
+import { INSTALL_RULES } from '../utils/installRules.js';
 import { settingsRegistry } from '../utils/settingsRegistry.js';
 import { createAdminService } from './admin.service.js';
 import { createAnalysisService } from './analysis.service.js';
@@ -34,6 +39,9 @@ import { createNotifier } from './notifier.js';
 import { createOffersService } from './offers.service.js';
 import { createOrdersService } from './orders.service.js';
 import { createRegistrationFeeService } from './registrationFee.service.js';
+import { createVerificationService } from './verification.service.js';
+import { createBlogService } from './blog.service.js';
+import { createInstallationsService } from './installations.service.js';
 import { createShopService } from './shop.service.js';
 
 // ---------- shared tools ----------
@@ -91,18 +99,18 @@ export const catalogService = createCatalogService({ productsModel, dealsModel, 
 
 export const offersService = createOffersService({
   productsModel, dealsModel, requestsModel, assessmentsModel,
-  config: { requireVerified: env.vendorApprovalRequired },
+  config: { requireVerified: true },
 });
 
 export const shopService = createShopService({
   productsModel, dealsModel, feesService: deliveryFeesService,
-  config: { requireVerified: env.vendorApprovalRequired },
+  config: { requireVerified: true },
 });
 
 export const ordersService = createOrdersService({
   productsModel, dealsModel, ordersModel, feesService: deliveryFeesService, paystack, notifier,
   config: {
-    requireVerified: env.vendorApprovalRequired,
+    requireVerified: true,
     maxQty: env.checkout.maxQty,
     maxTotal: env.checkout.maxTotal,
     pendingExpiryHours: env.checkout.pendingExpiryHours,
@@ -116,6 +124,16 @@ export const registrationFeeService = createRegistrationFeeService({
   config: { required: VENDOR_REGISTRATION_FEE_REQUIRED, callbackUrl: `${clientUrl}/vendor/fee/return` },
 });
 
+export const verificationService = createVerificationService({ vendorsModel, installersModel, documentsModel, usersModel, auditModel, cloudinary, notifier });
+
+// INSTALL_RULES is the live object the admin's Pricing page edits, so a new price applies to the next quote.
+export const installationsService = createInstallationsService({
+  model: installationsModel, paystack, notifier, usersModel, rules: INSTALL_RULES,
+  config: { callbackUrl: `${clientUrl}/installation/return` },
+});
+
+export const blogService = createBlogService({ articlesModel, imagesModel, auditModel });
+
 export const adminService = createAdminService({
   registry: settingsRegistry, settingsModel, auditModel, usersModel, vendorsModel, productsModel, imagesModel,
   afterSettingsSaved: async (keys) => {
@@ -125,7 +143,10 @@ export const adminService = createAdminService({
 
 // Closes delivered orders nobody confirmed and drops unpaid checkouts. Safe to run on several servers at once.
 export function startHousekeeping() {
-  const tick = () => ordersService.housekeeping().catch((err) => console.error('[orders] housekeeping failed:', err.message));
+  const tick = () => {
+    ordersService.housekeeping().catch((err) => console.error('[orders] housekeeping failed:', err.message));
+    installationsService.housekeeping().catch((err) => console.error('[install] housekeeping failed:', err.message));
+  };
   const timer = setInterval(tick, env.checkout.housekeepingMinutes * 60 * 1000);
   timer.unref();
   tick();

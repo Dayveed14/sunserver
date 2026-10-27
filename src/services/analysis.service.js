@@ -15,11 +15,11 @@ export function createAnalysisService({ assessmentsModel }) {
       return { ...catalog, discos: ASSUMPTIONS.discos.map(({ id, name }) => ({ id, name })) };
     },
 
-    estimate: (input) => estimate(input, deps),
+    estimate: (input) => ({ ...estimate(input, deps), budget: input.budget || null }),
 
     // Saving recalculates from the raw ticks on the server; we never trust a result sent by the browser.
     async save(userId, input) {
-      const result = estimate(input, deps);
+      const result = { ...estimate(input, deps), budget: input.budget || null };
       const id = await assessmentsModel.create({
         userId, segment: input.segment, disco: input.disco, supplyBand: input.supplyBand ?? null, input, result,
       });

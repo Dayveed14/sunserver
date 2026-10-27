@@ -2,7 +2,7 @@ import { query } from '../db/pool.js';
 
 const SELECT = `
   SELECT p.id, p.vendor_id, p.category, p.name, p.brand, p.rating, p.system_voltage, p.battery_type,
-         p.price, p.in_stock, p.warranty_years, p.description, p.status, p.created_at,
+         p.price, p.in_stock, p.warranty_years, p.description, p.status, p.includes_controller, p.created_at,
          v.company_name AS vendor_name, v.verification_status AS vendor_verification,
          pi.image_id, va.state AS vendor_state, va.area_id AS vendor_area
   FROM products p
@@ -31,6 +31,7 @@ export const toProduct = (r) => ({
   warrantyYears: r.warranty_years,
   description: r.description,
   status: r.status,
+  includesController: r.includes_controller == null ? true : Boolean(r.includes_controller),
   createdAt: r.created_at,
 });
 
@@ -40,7 +41,7 @@ const visibleVendor = (requireVerified) =>
 
 const fields = (d) => [
   d.category, d.name, d.brand ?? null, d.rating, d.systemVoltage ?? null, d.batteryType ?? null,
-  d.price, d.inStock ? 1 : 0, d.warrantyYears ?? null, d.description ?? null, d.status,
+  d.price, d.inStock ? 1 : 0, d.warrantyYears ?? null, d.description ?? null, d.status, d.includesController === false ? 0 : 1,
 ];
 
 export const productsModel = {
@@ -67,8 +68,8 @@ export const productsModel = {
   async create(vendorId, d) {
     const res = await query(
       `INSERT INTO products
-        (vendor_id, category, name, brand, rating, system_voltage, battery_type, price, in_stock, warranty_years, description, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (vendor_id, category, name, brand, rating, system_voltage, battery_type, price, in_stock, warranty_years, description, status, includes_controller)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [vendorId, ...fields(d)]
     );
     return res.insertId;
@@ -77,7 +78,7 @@ export const productsModel = {
   async update(id, vendorId, d) {
     const res = await query(
       `UPDATE products SET category = ?, name = ?, brand = ?, rating = ?, system_voltage = ?, battery_type = ?,
-              price = ?, in_stock = ?, warranty_years = ?, description = ?, status = ?
+              price = ?, in_stock = ?, warranty_years = ?, description = ?, status = ?, includes_controller = ?
        WHERE id = ? AND vendor_id = ? AND status <> 'archived'`,
       [...fields(d), id, vendorId]
     );
@@ -108,7 +109,7 @@ export const productsModel = {
   async updateAny(id, d) {
     const res = await query(
       `UPDATE products SET category = ?, name = ?, brand = ?, rating = ?, system_voltage = ?, battery_type = ?,
-              price = ?, in_stock = ?, warranty_years = ?, description = ?, status = ?
+              price = ?, in_stock = ?, warranty_years = ?, description = ?, status = ?, includes_controller = ?
        WHERE id = ? AND status <> 'archived'`,
       [...fields(d), id]
     );
@@ -147,10 +148,11 @@ export const productsModel = {
   },
 
   // Everything customers can pick from in the DIY builder (the matching rules narrow it down).
-  async listBuyable({ requireVerified, state }) {
+  async listBuyable({ requireVerified, state, categories = ['panel', 'inverter', 'battery'] }) {
+    const marks = categories.map(() => '?').join(',');
     const rows = await query(
-      `${SELECT} WHERE p.status = 'active' AND p.in_stock = 1 AND p.category IN ('panel','inverter','battery') AND ${visibleVendor(requireVerified)}${state ? ' AND va.state = ?' : ''} LIMIT 2000`,
-      state ? [state] : []
+      `${SELECT} WHERE p.status = 'active' AND p.in_stock = 1 AND p.category IN (${marks}) AND ${visibleVendor(requireVerified)}${state ? ' AND va.state = ?' : ''} LIMIT 3000`,
+      [...categories, ...(state ? [state] : [])]
     );
     return rows.map(toProduct);
   },

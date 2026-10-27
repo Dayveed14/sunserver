@@ -29,7 +29,7 @@ Run these. Every one should pass.
 - `DB_*` for TiDB Cloud. SSL is automatic for any remote host.
 - `PAYSTACK_SECRET_KEY` (`sk_live_...`). Without it the server refuses to start in production, so simulated payments can never be switched on by accident.
 - `RESEND_API_KEY` and `MAIL_FROM` on a domain you verified in Resend (`onboarding@resend.dev` only emails you).
-- `LOGISTICS_EMAIL`, `ADMIN_NOTIFY_EMAIL`, `CLOUDINARY_URL`, `VENDOR_APPROVAL_REQUIRED=1` once you verify vendors by hand.
+- `LOGISTICS_EMAIL`, `ADMIN_NOTIFY_EMAIL`, `CLOUDINARY_URL`.
 - `TRUST_PROXY`: **2** when the site reaches Render through the Vercel `/api` rewrite, **1** if browsers call Render directly. Without it the server sees only the proxy's address, so every visitor shares one rate-limit bucket (for example 30 login attempts per 15 minutes for the whole site) and a busy hour or one attacker blocks everyone. I could not test the Vercel-to-Render chain from here, so **verify after deploy:** make about 31 wrong login attempts from your laptop, then try to log in from your phone on mobile data. If the phone is blocked too, the server is still seeing one address: raise `TRUST_PROXY` by one and try again. If you are blocked after fewer attempts than expected, lower it.
 
 **Vercel (the site).**

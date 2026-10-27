@@ -18,6 +18,7 @@ export const productSchema = z
     batteryType: z.enum(['lithium', 'gel', 'tubular', 'agm']).optional().nullable(),
     price: naira,
     inStock: z.boolean().default(true),
+    includesController: z.boolean().default(true),
     warrantyYears: years,
     description: optionalText(500),
     status: z.enum(['active', 'hidden']).default('active'),

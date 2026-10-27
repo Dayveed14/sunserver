@@ -7,9 +7,9 @@ const PURPOSE = 'verify_email';
 // Compared against when an email doesn't exist, so response time doesn't reveal which emails are registered.
 const DUMMY_HASH = bcrypt.hashSync('solalium-timing-equaliser', 10);
 
-const ROLE_LABEL = { individual: 'individual', business: 'business', vendor: 'vendor', admin: 'admin' };
+const ROLE_LABEL = { individual: 'individual', business: 'business', vendor: 'vendor', admin: 'admin', installer: 'installer' };
 // If a person has several accounts on one email, log in to the first of these they have.
-const LOGIN_PRIORITY = ['admin', 'individual', 'business', 'vendor'];
+const LOGIN_PRIORITY = ['admin', 'individual', 'business', 'vendor', 'installer'];
 const byPriority = (a, b) => LOGIN_PRIORITY.indexOf(a.role) - LOGIN_PRIORITY.indexOf(b.role);
 
 export function createAuthService({ users, otps, resets, mailer, config, now = () => new Date(), onAccountCreated = async () => {} }) {
@@ -68,7 +68,7 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
     return { resendInSeconds: otpCfg.resendCooldownSeconds };
   }
 
-  async function register({ email, password, role, fullName, phone, companyName, address }) {
+  async function register({ email, password, role, fullName, phone, companyName, address, vendorType }) {
     const accounts = await users.listByEmail(email);
     const same = accounts.find((u) => u.role === role);
     if (same?.email_verified_at) {
@@ -85,7 +85,7 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
           `This email already has a Solalium account. To add a ${ROLE_LABEL[role]} account, enter that account's current password.`);
       }
       const t = now();
-      const id = await users.create({ email, passwordHash: owner.password_hash, role, fullName, phone, companyName, address, verifiedAt: t, registrationFeeStatus: feeStatusFor(role) });
+      const id = await users.create({ email, passwordHash: owner.password_hash, role, fullName, phone, companyName, address, verifiedAt: t, registrationFeeStatus: feeStatusFor(role), vendorType });
       const created = await users.findById(id);
       await onAccountCreated(created);
       return { email, added: true, user: toPublicUser(created), userId: id };
@@ -94,10 +94,10 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
     const passwordHash = await bcrypt.hash(password, config.bcryptRounds);
     let user;
     if (same) {
-      await users.updatePendingRegistration(same.id, { passwordHash, role, fullName, phone, companyName, address, registrationFeeStatus: feeStatusFor(role) });
+      await users.updatePendingRegistration(same.id, { passwordHash, role, fullName, phone, companyName, address, registrationFeeStatus: feeStatusFor(role), vendorType });
       user = { ...same, role, full_name: fullName };
     } else {
-      const id = await users.create({ email, passwordHash, role, fullName, phone, companyName, address, registrationFeeStatus: feeStatusFor(role) });
+      const id = await users.create({ email, passwordHash, role, fullName, phone, companyName, address, registrationFeeStatus: feeStatusFor(role), vendorType });
       user = { id, email, role, full_name: fullName };
     }
 
@@ -214,7 +214,7 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
 
   // A signed-in person opens another type of account on the same email. They are already authenticated,
   // so it uses their current password and needs no code.
-  async function addAccount(currentUserId, { role, fullName, phone, companyName, address }) {
+  async function addAccount(currentUserId, { role, fullName, phone, companyName, address, vendorType }) {
     const current = await users.findById(currentUserId);
     if (!current) throw new HttpError(401, 'UNAUTHENTICATED', 'Please log in to continue.');
     const accounts = await users.listByEmail(current.email);
@@ -224,7 +224,7 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
     const id = await users.create({
       email: current.email, passwordHash: current.password_hash, role,
       fullName: fullName ?? current.full_name, phone: phone ?? current.phone, companyName, address, verifiedAt: now(),
-      registrationFeeStatus: feeStatusFor(role),
+      registrationFeeStatus: feeStatusFor(role), vendorType,
     });
     const created = await users.findById(id);
     await onAccountCreated(created);

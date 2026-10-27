@@ -11,6 +11,16 @@ import { leaseOptions } from './lease.js';
 
 export const PLANS = ['buy', 'lease', 'rent', 'eaas'];
 
+// Parts that complete a system beyond panels, inverter and battery (wiring, mounting, protection, a charge controller).
+export const EXTRA_CATEGORIES = ['mounting', 'cable', 'connector', 'protection', 'surge_protection', 'distribution', 'earthing', 'controller'];
+const EXTRA_SET = new Set(EXTRA_CATEGORIES);
+
+// Which extras a system needs. A separate charge controller is only needed when the inverter does not include one.
+export function neededExtras(inverter) {
+  const needsController = inverter ? inverter.includesController === false : false;
+  return EXTRA_CATEGORIES.filter((c) => c !== 'controller' || needsController);
+}
+
 // How much of the minimum counts as "covered", and how far above it we still call sensible.
 // Panels and batteries come in fixed unit sizes, so a 5% shortfall is tolerated; inverters are not.
 export const SIZING = {
@@ -127,6 +137,7 @@ export function quoteDiy(req, items, productsById) {
   const errors = [];
   const lines = [];
   const byCategory = { panel: [], inverter: [], battery: [] };
+  const extras = [];
   const seen = new Set();
 
   for (const { productId, qty } of items) {
@@ -140,6 +151,14 @@ export function quoteDiy(req, items, productsById) {
       continue;
     }
     seen.add(product.id);
+    if (EXTRA_SET.has(product.category)) {
+      extras.push({ product, qty });
+      continue;
+    }
+    if (!byCategory[product.category]) {
+      errors.push(err('NOT_PART_OF_SYSTEM', `${product.name} cannot be part of a custom system. You can buy it from the shop.`));
+      continue;
+    }
     byCategory[product.category].push({ product, qty });
   }
 
@@ -197,7 +216,7 @@ export function quoteDiy(req, items, productsById) {
   let kwp = 0;
   let kva = 0;
   let kwh = 0;
-  for (const entry of [panel, inverter, battery]) {
+  for (const entry of [panel, inverter, battery, ...extras]) {
     if (!entry) continue;
     const { product, qty } = entry;
     const lineTotal = product.price * qty;
@@ -220,12 +239,17 @@ export function quoteDiy(req, items, productsById) {
     });
   }
 
+  // Advisory only: the customer may already own some of these, so a missing part never blocks the request.
+  const picked = new Set(extras.map((e) => e.product.category));
+  const extrasMissing = neededExtras(inverter?.product).filter((c) => !picked.has(c));
+
   return {
     valid: errors.length === 0,
     errors,
     lines,
     subtotal,
     totals: { kwp: round2(kwp), kva: round2(kva), kwh: round2(kwh) },
+    extrasMissing,
   };
 }
 

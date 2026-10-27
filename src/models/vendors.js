@@ -3,32 +3,51 @@ import { query, withTransaction } from '../db/pool.js';
 export const vendorsModel = {
   async getProfile(userId) {
     const rows = await query(
-      'SELECT user_id, company_name, verification_status, registration_fee_status FROM vendor_profiles WHERE user_id = ? LIMIT 1',
+      `SELECT v.user_id, v.company_name, v.vendor_type, v.verification_status, v.verification_note, v.documents_submitted_at, v.verified_at,
+              v.registration_fee_status, u.email, u.full_name
+       FROM vendor_profiles v JOIN users u ON u.id = v.user_id WHERE v.user_id = ? LIMIT 1`,
       [userId]
     );
     const r = rows[0];
-    return r ? { userId: Number(r.user_id), companyName: r.company_name, verification: r.verification_status, registrationFee: r.registration_fee_status } : null;
+    return r ? {
+      userId: Number(r.user_id), companyName: r.company_name, vendorType: r.vendor_type, verification: r.verification_status,
+      note: r.verification_note, submittedAt: r.documents_submitted_at, verifiedAt: r.verified_at, registrationFee: r.registration_fee_status,
+      email: r.email, contactName: r.full_name,
+    } : null;
   },
 
   async listForAdmin({ status }) {
     const rows = await query(
-      `SELECT v.user_id, v.company_name, v.service_types, v.verification_status, v.registration_fee_status, v.created_at,
+      `SELECT v.user_id, v.company_name, v.service_types, v.vendor_type, v.verification_status, v.verification_note, v.documents_submitted_at, v.registration_fee_status, v.created_at,
+              (SELECT COUNT(*) FROM verification_documents d WHERE d.user_id = v.user_id) AS documents,
               u.email, u.full_name, u.phone, u.status AS account_status,
               (SELECT COUNT(*) FROM products p WHERE p.vendor_id = v.user_id AND p.status <> 'archived') AS products,
               (SELECT COUNT(*) FROM deals d WHERE d.vendor_id = v.user_id AND d.status = 'active') AS active_deals
        FROM vendor_profiles v JOIN users u ON u.id = v.user_id
-       ${status ? 'WHERE v.verification_status = ?' : ''} ORDER BY v.created_at DESC LIMIT 200`,
+       ${status ? 'WHERE v.verification_status = ?' : ''}
+       ORDER BY (v.verification_status = 'pending' AND v.documents_submitted_at IS NOT NULL) DESC, v.created_at DESC LIMIT 200`,
       status ? [status] : []
     );
     return rows.map((r) => ({
-      userId: Number(r.user_id), companyName: r.company_name, serviceTypes: r.service_types,
+      userId: Number(r.user_id), companyName: r.company_name, serviceTypes: r.service_types, vendorType: r.vendor_type,
+      documents: Number(r.documents), submittedAt: r.documents_submitted_at, note: r.verification_note,
       verification: r.verification_status, registrationFee: r.registration_fee_status, createdAt: r.created_at, email: r.email, contactName: r.full_name,
       phone: r.phone, accountStatus: r.account_status, products: Number(r.products), activeDeals: Number(r.active_deals),
     }));
   },
 
-  async setVerification(userId, status) {
-    const res = await query('UPDATE vendor_profiles SET verification_status = ? WHERE user_id = ?', [status, userId]);
+  async setVerification(userId, status, note = null) {
+    const res = await query(
+      `UPDATE vendor_profiles SET verification_status = ?, verification_note = ?, verified_at = ${status === 'verified' ? 'UTC_TIMESTAMP()' : 'NULL'} WHERE user_id = ?`,
+      [status, status === 'verified' ? null : note, userId]
+    );
+    return res.affectedRows > 0;
+  },
+  async markSubmitted(userId) {
+    await query("UPDATE vendor_profiles SET documents_submitted_at = UTC_TIMESTAMP(), verification_status = 'pending', verification_note = NULL WHERE user_id = ? AND verification_status <> 'verified'", [userId]);
+  },
+  async setType(userId, vendorType) {
+    const res = await query('UPDATE vendor_profiles SET vendor_type = ? WHERE user_id = ?', [vendorType, userId]);
     return res.affectedRows > 0;
   },
 

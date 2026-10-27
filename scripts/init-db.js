@@ -10,6 +10,11 @@ import { migrate } from './migrate.js';
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'sql');
 const files = ['schema.sql', ...fs.readdirSync(dir).filter((f) => f.endsWith('.sql') && f !== 'schema.sql').sort()];
 
+// The .sql files say "solalium"; use the database name from .env instead, so a different DB_NAME (for example one made in phpMyAdmin) is the one that gets built.
+const dbName = process.env.DB_NAME ?? 'solalium';
+if (!/^[A-Za-z0-9_]{1,64}$/.test(dbName)) throw new Error('DB_NAME may only contain letters, numbers and underscores.');
+const forThisDatabase = (sql) => sql.replace(/^(CREATE DATABASE IF NOT EXISTS )solalium\b/gim, `$1\`${dbName}\``).replace(/^USE solalium;/gim, `USE \`${dbName}\`;`);
+
 const conn = await mysql.createConnection({
   host: process.env.DB_HOST ?? '127.0.0.1',
   port: Number(process.env.DB_PORT ?? 3306),
@@ -21,10 +26,11 @@ const conn = await mysql.createConnection({
 
 try {
   for (const file of files) {
-    await conn.query(fs.readFileSync(path.join(dir, file), 'utf8'));
+    await conn.query(forThisDatabase(fs.readFileSync(path.join(dir, file), 'utf8')));
+    await conn.query(`USE \`${dbName}\``);
     console.log(`Applied ${file}`);
   }
-  await migrate(conn, process.env.DB_NAME ?? 'solalium');
+  await migrate(conn, dbName);
   console.log('Database ready.');
 } finally {
   await conn.end();

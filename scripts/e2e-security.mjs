@@ -70,11 +70,12 @@ async function signUp(role, name, email, extra = {}) {
   const api = client();
   const reg = await api('POST', '/auth/register', {
     role, fullName: name, email, phone: '08031234567', password: PW,
-    address: { line: '12 Test Street', state: 'lagos', areaId: extra.areaId ?? 'ikeja' }, ...(role !== 'individual' ? { companyName: `${name} Ltd` } : {}),
+    address: { line: '12 Test Street', state: 'lagos', areaId: extra.areaId ?? 'ikeja' }, ...(role !== 'individual' ? { companyName: `${name} Ltd` } : {}), ...(role === 'vendor' ? { vendorType: 'company' } : {}),
   });
   assert.equal(reg.status, 201, JSON.stringify(reg.body));
   const ver = await api('POST', '/auth/verify-otp', { email, role, code: codeFor(email) });
   assert.equal(ver.status, 200, JSON.stringify(ver.body));
+  if (role === 'vendor' && !extra.unverified) await query("UPDATE vendor_profiles vp JOIN users u ON u.id = vp.user_id SET vp.verification_status = 'verified' WHERE u.email = ? AND u.role = 'vendor'", [email]);
   return api;
 }
 
@@ -82,13 +83,14 @@ const stamp = Date.now();
 const mail = (n) => `sec-${n}-${stamp}@example.test`;
 const vendorA = await signUp('vendor', 'Vendor A', mail('va'));
 const vendorB = await signUp('vendor', 'Vendor B', mail('vb'));
+const installerA = await signUp('installer', 'Installer A', mail('ia'));
 const custA = await signUp('individual', 'Customer A', mail('ca'), { areaId: 'yaba' });
 const custB = await signUp('individual', 'Customer B', mail('cb'), { areaId: 'yaba' });
 await query(`INSERT INTO users (email, password_hash, role, full_name, email_verified_at) VALUES (?, ?, 'admin', 'Sec Admin', UTC_TIMESTAMP())`, [mail('ad'), await bcrypt.hash(PW, 4)]);
 const admin = client();
 assert.equal((await admin('POST', '/auth/login', { email: mail('ad'), password: PW })).status, 200);
 const anon = client();
-step('test accounts: two vendors, two customers, one admin');
+step('test accounts: two vendors, two customers, an installer, one admin');
 
 // ---------------------------------------------------------------------------------------------------------------
 // 1. EVERY ROUTE. The route files are read from disk, so a new endpoint is checked automatically.
@@ -97,7 +99,7 @@ step('test accounts: two vendors, two customers, one admin');
 const MOUNTS = {
   'auth.routes.js': { router: '/api/auth' }, 'analysis.routes.js': { router: '/api/analysis' }, 'vendorFee.routes.js': { router: '/api/vendor/fee' },
   'vendorOrders.routes.js': { router: '/api/vendor/orders' }, 'vendor.routes.js': { router: '/api/vendor' }, 'adminOrders.routes.js': { router: '/api/admin/orders' },
-  'admin.routes.js': { router: '/api/admin' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
+  'admin.routes.js': { router: '/api/admin' }, 'installer.routes.js': { router: '/api/installer' }, 'installations.routes.js': { router: '/api/installations' }, 'adminInstallations.routes.js': { router: '/api/admin/installations' }, 'blog.routes.js': { router: '/api/blog' }, 'adminBlog.routes.js': { router: '/api/admin/blog' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
   'offers.routes.js': { router: '/api/offers' }, 'shop.routes.js': { router: '/api/shop' }, 'webhook.routes.js': { router: '/api/webhooks' },
   'images.routes.js': { vendorUploadRouter: '/api/vendor/images', adminUploadRouter: '/api/admin/images', viewRouter: '/api/images' },
 };
@@ -105,7 +107,7 @@ const PUBLIC = new Set([
   'POST /auth/register', 'POST /auth/verify-otp', 'POST /auth/resend-otp', 'POST /auth/login', 'POST /auth/forgot-password', 'POST /auth/reset-password', 'POST /auth/logout', 'GET /auth/areas',
   'GET /analysis/catalog/:segment', 'POST /analysis/estimate',
   'GET /dispatch/info', 'POST /dispatch/confirm', // protected by a signed link, tested below
-  'GET /shop/products', 'GET /shop/deals', 'GET /shop/products/:id', 'GET /shop/deals/:id',
+  'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/products/:id', 'GET /shop/deals/:id',
   'GET /images/:id', 'POST /webhooks/paystack', // the webhook is protected by its signature, tested below
 ]);
 const routeDir = path.resolve('src/routes');
@@ -134,9 +136,9 @@ step(`${checked} protected endpoints all refuse a visitor with no login (${found
 // ---------------------------------------------------------------------------------------------------------------
 // 2. WRONG ROLE. Each kind of account against the other kinds' areas.
 // ---------------------------------------------------------------------------------------------------------------
-const roleOf = (full) => (full.startsWith('/admin') ? 'admin' : full.startsWith('/vendor') ? 'vendor'
-  : /^\/(offers|checkout|orders|analysis\/assessments)/.test(full) ? 'customer' : null);
-const actors = { admin, vendor: vendorA, customer: custA };
+const roleOf = (full) => (full.startsWith('/admin') ? 'admin' : full.startsWith('/vendor') ? 'vendor' : full.startsWith('/installer') ? 'installer'
+  : /^\/(offers|checkout|orders|installations|analysis\/assessments)/.test(full) ? 'customer' : null);
+const actors = { admin, vendor: vendorA, customer: custA, installer: installerA };
 let crossed = 0;
 for (const r of found.filter((f) => !PUBLIC.has(f.key))) {
   const need = roleOf(r.full);
@@ -367,6 +369,31 @@ const replay = await hook(good1, sign(good1));
 assert.equal(replay.status, 200);
 assert.equal(Number((await query("SELECT COUNT(*) c FROM payments WHERE reference = ? AND status = 'success'", [pay.reference]))[0].c), 1);
 step('6 simultaneous genuine webhooks plus a later replay: paid once, one vendor order, one success row');
+// Installation payments go through the same webhook and the same rules.
+const instReq = await custA('POST', '/installations', { description: 'Install a 2 kW system on my roof please', systemKw: 2, state: 'lagos', areaId: 'yaba', line: '3 Test Lane, Yaba', preferredDate: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) });
+assert.equal(instReq.status, 201, JSON.stringify(instReq.body));
+const instRef = instReq.body.request.ref;
+const instPay = await custA('POST', `/installations/${instRef}/pay`);
+assert.equal(instPay.status, 201, JSON.stringify(instPay.body));
+const instStatus = async () => (await query('SELECT status FROM install_requests WHERE public_ref = ?', [instRef]))[0].status;
+assert.equal(await instStatus(), 'awaiting_payment');
+const ievent = (over = {}) => JSON.stringify({ event: 'charge.success', data: { reference: instPay.body.reference, amount: instPay.body.amount * 100, currency: 'NGN', status: 'success', ...over } });
+assert.equal((await hook(ievent(), 'deadbeef')).status >= 400, true);
+const ishort = ievent({ amount: instPay.body.amount * 100 - 100 });
+await hook(ishort, sign(ishort));
+const iusd = ievent({ currency: 'USD' });
+await hook(iusd, sign(iusd));
+const ifail = JSON.stringify({ event: 'charge.failed', data: { reference: 'IP-NOSUCH', status: 'failed' } });
+assert.ok((await hook(ifail, sign(ifail))).status < 500);
+assert.equal(await instStatus(), 'awaiting_payment', 'bad signature, short payment and wrong currency leave the job unpaid');
+const igood = ievent();
+const iresults = await Promise.all(Array.from({ length: 6 }, () => hook(igood, sign(igood))));
+assert.ok(iresults.every((r) => r.status === 200));
+assert.equal(await instStatus(), 'open');
+assert.equal(Number((await query("SELECT COUNT(*) c FROM install_payments WHERE reference = ? AND status = 'success'", [instPay.body.reference]))[0].c), 1);
+assert.equal((await custB('POST', `/installations/verify`, { reference: instPay.body.reference })).status, 404, 'another customer cannot verify it');
+assert.equal((await custA('POST', `/installations/${instRef}/pay`)).status, 409, 'a paid request cannot be paid again');
+step('installation payments: bad signature, short payment and wrong currency are refused; 6 simultaneous genuine webhooks open the job once');
 const bodyless = await anon('POST', '/webhooks/paystack', '{not json', { 'x-paystack-signature': sign('{not json'), 'Content-Type': 'application/json' });
 assert.ok(bodyless.status < 500, 'malformed webhook body must not crash the server');
 

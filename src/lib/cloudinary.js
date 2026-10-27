@@ -31,14 +31,15 @@ export function createCloudinary({ cloudName, apiKey, apiSecret, folder = 'solal
   return {
     enabled,
     // Uploads one picture. Returns the permanent address and Cloudinary's id for it.
-    async upload(buffer, mime) {
+    // `into` stores it in a different folder (private documents go in an unguessable one).
+    async upload(buffer, mime, into = folder) {
       const timestamp = Math.floor(now() / 1000);
-      const signed = { folder, timestamp };
+      const signed = { folder: into, timestamp };
       const form = new FormData();
       form.append('file', new Blob([buffer], { type: mime }), 'upload');
       form.append('api_key', apiKey);
       form.append('timestamp', String(timestamp));
-      form.append('folder', folder);
+      form.append('folder', into);
       form.append('signature', sign(signed));
       const r = await call('/image/upload', form);
       return { url: r.secure_url, publicId: r.public_id };

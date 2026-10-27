@@ -8,6 +8,11 @@ import { checkDealComposition, dealSpecs, plansOffered } from '../utils/matching
 // Models are injected so the rules can be tested without a database.
 export function createCatalogService({ productsModel, dealsModel, requestsModel, vendorsModel, imagesModel = null }) {
   const notFound = (what) => new HttpError(404, 'NOT_FOUND', `${what} not found.`);
+  // Energy-as-a-Service ties a vendor to a customer for years, so only registered companies may offer it.
+  const assertCompany = async (vendorId) => {
+    const p = await vendorsModel.getProfile(vendorId);
+    if (p?.vendorType !== 'company') throw new HttpError(403, 'EAAS_COMPANY_ONLY', 'Only company vendors can offer Energy-as-a-Service. Register as a company and upload your CAC to unlock it.');
+  };
 
   // Turns the vendor's picks into full items, making sure every product is theirs and still listed.
   async function resolveItems(vendorId, items) {
@@ -59,7 +64,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
         dealsModel.countActiveByVendor(vendorId),
         requestsModel.countNewForVendor(vendorId),
       ]);
-      return { verification: profile?.verification ?? 'pending', products, activeDeals, newRequests };
+      return { verification: profile?.verification ?? 'pending', vendorType: profile?.vendorType ?? 'seller', note: profile?.note ?? null, products, activeDeals, newRequests };
     },
 
     listProducts: (vendorId) => productsModel.listByVendor(vendorId),
@@ -95,6 +100,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
     },
 
     async createDeal(vendorId, data) {
+      if (data.eaas) await assertCompany(vendorId);
       const items = await resolveItems(vendorId, data.items);
       await checkImage(vendorId, data.imageId);
       const id = await dealsModel.create(vendorId, { ...data, items });
@@ -104,6 +110,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
 
     async updateDeal(vendorId, id, data) {
       if (!(await dealsModel.findOwned(id, vendorId))) throw notFound('Deal');
+      if (data.eaas) await assertCompany(vendorId);
       const items = await resolveItems(vendorId, data.items);
       await checkImage(vendorId, data.imageId);
       await dealsModel.update(id, vendorId, { ...data, items });
@@ -134,6 +141,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
 
     // Shows a vendor what their EaaS terms would charge a home and a business, before they publish.
     async previewEaas(vendorId, { items, eaas }) {
+      await assertCompany(vendorId);
       const resolved = await resolveItems(vendorId, items);
       const terms = {
         components: componentsFromItems(resolved.map((i) => ({ ...i, batteryType: i.batteryType ?? null })), eaas.equipmentCost ?? null),
@@ -150,7 +158,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
       options: leaseOptions(data.buyPrice, { depositPct: data.lease.depositPct / 100, tenors: data.lease.tenors }),
     }),
 
-    eaasRules: () => ({
+    eaasRules: async (vendorId) => (await assertCompany(vendorId), {
       annualReturn: EAAS_RULES.annualReturn,
       tenorMonths: EAAS_RULES.tenorMonths,
       platformFeePct: EAAS_RULES.platformFeePct,
