@@ -9,7 +9,7 @@ const toArticle = (r, withBody = true) => ({
 
 export const articlesModel = {
   async listPublished({ limit = 50, offset = 0 } = {}) {
-    const rows = await query("SELECT id, slug, title, summary, image_id, status, published_at, created_at, updated_at FROM articles WHERE status = 'published' ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?", [limit, offset]);
+    const rows = await query(`SELECT id, slug, title, summary, image_id, status, published_at, created_at, updated_at FROM articles WHERE status = 'published' ORDER BY published_at DESC, id DESC LIMIT ${Number(limit) | 0} OFFSET ${Number(offset) | 0}`);
     return rows.map((r) => toArticle(r, false));
   },
   async findPublishedBySlug(slug) {
