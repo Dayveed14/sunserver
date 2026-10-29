@@ -1,4 +1,4 @@
-# Solalium operations guide
+# Solariun operations guide
 
 Written for the day something goes wrong, and for the day before launch. Commands run from the `server` folder unless said otherwise.
 

@@ -7,7 +7,7 @@ const boot = (env) => spawnSync(process.execPath, ['-e', "await import('./src/se
   cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', input: '',
   env: { PATH: process.env.PATH, NODE_ENV: 'production', ...env }, timeout: 20000,
 });
-const good = { JWT_SECRET: 'x'.repeat(40), CLIENT_ORIGIN: 'https://solalium.example', PAYSTACK_SECRET_KEY: 'sk_test_x' };
+const good = { JWT_SECRET: 'x'.repeat(40), CLIENT_ORIGIN: 'https://solariun.example', PAYSTACK_SECRET_KEY: 'sk_test_x' };
 
 describe('production start-up refuses unsafe settings', () => {
   it('starts with good settings', () => { assert.match(boot(good).stdout, /BOOTED/); });
@@ -16,7 +16,7 @@ describe('production start-up refuses unsafe settings', () => {
     assert.doesNotMatch(boot({ ...good, JWT_SECRET: '' }).stdout, /BOOTED/);
   });
   it('refuses a missing, http or localhost site address', () => {
-    for (const CLIENT_ORIGIN of ['', 'http://solalium.example', 'http://localhost:5173', 'https://solalium.example/', 'solalium.example']) {
+    for (const CLIENT_ORIGIN of ['', 'http://solariun.example', 'http://localhost:5173', 'https://solariun.example/', 'solariun.example']) {
       assert.doesNotMatch(boot({ ...good, CLIENT_ORIGIN }).stdout, /BOOTED/, CLIENT_ORIGIN);
     }
   });

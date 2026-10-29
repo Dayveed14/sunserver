@@ -109,7 +109,7 @@ describe('payment security', () => {
     assert.equal(order.vendorOrders[0].status, 'placed');
     assert.ok(order.vendorOrders[0].promisedBy);
     const to = h.sent.map((m) => m.to);
-    assert.ok(to.includes('c1@x.ng') && to.includes('v10@x.ng') && to.includes('admin@solalium.ng'));
+    assert.ok(to.includes('c1@x.ng') && to.includes('v10@x.ng') && to.includes('admin@solariun.ng'));
   });
   it('a replayed webhook changes nothing and sends no second email', async () => {
     const h = createHarness();
@@ -220,7 +220,7 @@ describe('order life cycle', () => {
     await h.service.confirmReceived(user(), order.publicRef, vo);
     const done = await h.ordersModel.findByRef(order.publicRef);
     assert.equal(done.vendorOrders[0].status, 'completed');
-    assert.ok(h.sent.filter((m) => m.to === 'admin@solalium.ng').length >= 6); // admin sees every step
+    assert.ok(h.sent.filter((m) => m.to === 'admin@solariun.ng').length >= 6); // admin sees every step
   });
   it('steps cannot be skipped or repeated, and repeats are harmless', async () => {
     const h = createHarness();

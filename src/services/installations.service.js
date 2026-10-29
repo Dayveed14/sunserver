@@ -193,7 +193,7 @@ export function createInstallationsService({ model, paystack, notifier, usersMod
     async cancel(user, ref) {
       const r = await ownedByCustomer(user, ref);
       const ok = await model.cancel({ requestId: r.id, reason: 'Cancelled by the customer', at: now(), refundNeeded: false, from: ['quote', 'awaiting_payment'] });
-      if (!ok) throw bad(409, 'NOT_CANCELLABLE', 'This request has been paid for. Contact Solalium support to cancel it.');
+      if (!ok) throw bad(409, 'NOT_CANCELLABLE', 'This request has been paid for. Contact Solariun support to cancel it.');
       return { status: 'cancelled' };
     },
 

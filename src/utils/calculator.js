@@ -191,7 +191,7 @@ export function estimate(input, { catalogs, assumptions: A }) {
   const leaseMonthly = (systemCost * (1 + F.lease.markupPct) - leaseDeposit) / F.lease.termMonths;
   const rentMonthly = systemCost * F.rent.monthlyPct;
   // Energy as a service uses the same pricing rules vendors use: annuity on the equipment at a target return,
-  // plus running costs, a risk allowance and Solalium's fee. See marketplace/eaas.js.
+  // plus running costs, a risk allowance and Solariun's fee. See marketplace/eaas.js.
   const eaasQuote = computeEaas({
     components: [
       { category: 'panel', cost: panelCost },

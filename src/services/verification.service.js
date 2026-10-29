@@ -151,7 +151,7 @@ export function createVerificationService({ vendorsModel, installersModel, docum
       await installersModel.setVerification(installerId, status, note?.trim() || null);
       await auditModel.add({ adminId, action: 'installer.verification', target: `installer:${installerId}`, detail: { from: p.verification, to: status, note: note?.trim() || null } });
       const u = await usersModel.findById(installerId);
-      if (u && status !== 'pending') await notifier.notify('verification_decided', { user: { email: u.email, fullName: u.full_name }, approved: status === 'verified', note: note?.trim(), subject: 'Solalium installer' });
+      if (u && status !== 'pending') await notifier.notify('verification_decided', { user: { email: u.email, fullName: u.full_name }, approved: status === 'verified', note: note?.trim(), subject: 'Solariun installer' });
       return { userId: installerId, verification: status };
     },
   };

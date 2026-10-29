@@ -18,7 +18,7 @@ const lit = (v) => (v !== null && typeof v === 'object' && !(v instanceof Date) 
 const q = (name) => `\`${String(name).replace(/`/g, '``')}\``;
 
 async function* dump() {
-  yield `-- Solalium backup of ${env.db.database}, made ${new Date().toISOString()}\nSET FOREIGN_KEY_CHECKS=0;\nSET NAMES utf8mb4;\nSET time_zone='+00:00';\n\n`;
+  yield `-- Solariun backup of ${env.db.database}, made ${new Date().toISOString()}\nSET FOREIGN_KEY_CHECKS=0;\nSET NAMES utf8mb4;\nSET time_zone='+00:00';\n\n`;
   const tables = (await query("SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name")).map((r) => r.name ?? r.TABLE_NAME);
   for (const t of tables) {
     const [{ 'Create Table': create }] = await query(`SHOW CREATE TABLE ${q(t)}`);

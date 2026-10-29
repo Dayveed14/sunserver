@@ -28,7 +28,7 @@ const DEFS = [
   ['leaseDepositPct', 'Lease deposit', 'Lease and rent (free assessment)', 'pct', 'A', ['financing', 'lease', 'depositPct'], 0, 0.6, 'of system cost'],
   ['rentMonthlyPct', 'Rent per month', 'Lease and rent (free assessment)', 'pct', 'A', ['financing', 'rent', 'monthlyPct'], 0.005, 0.15, 'of system cost'],
   // Energy as a service (applies to vendors and the free assessment)
-  ['eaasPlatformFee', 'Solalium fee', 'Energy as a service', 'pct', 'E', ['platformFeePct'], 0, 0.25, 'of the monthly price'],
+  ['eaasPlatformFee', 'Solariun fee', 'Energy as a service', 'pct', 'E', ['platformFeePct'], 0, 0.25, 'of the monthly price'],
   ['eaasReturnMin', 'Lowest return a vendor may set', 'Energy as a service', 'pct', 'E', ['annualReturn', 'min'], 0, 0.6, 'a year'],
   ['eaasReturnMax', 'Highest return a vendor may set', 'Energy as a service', 'pct', 'E', ['annualReturn', 'max'], 0.02, 0.8, 'a year'],
   ['eaasReturnDefault', 'Return used in the free assessment', 'Energy as a service', 'pct', 'E', ['annualReturn', 'default'], 0, 0.6, 'a year'],
@@ -40,14 +40,14 @@ const DEFS = [
   ['eaasRiskBusiness', 'Risk allowance, businesses', 'Energy as a service', 'pct', 'E', ['riskPct', 'business'], 0, 0.4, 'of cost'],
   ['eaasResidualHaircut', 'Resale value not counted on', 'Energy as a service', 'pct', 'E', ['residualHaircut'], 0, 1, 'of leftover value'],
   ['eaasDepositMonths', 'Refundable deposit', 'Energy as a service', 'number', 'E', ['depositMonths'], 0, 3, 'months of payments'],
-  // How Solalium earns
-  ['vendorRegistrationFee', 'Vendor registration fee (one-time)', 'Solalium fees', 'naira', 'F', ['vendorRegistrationFee'], 0, 5000000, '₦ once per vendor, when registration is switched to paid'],
-  ['vendorSubscriptionSeller', 'Monthly subscription, sellers', 'Solalium fees', 'naira', 'F', ['vendorSubscriptionSeller'], 0, 5000000, '₦ per month. 0 = no subscription for sellers'],
-  ['vendorSubscriptionCompany', 'Monthly subscription, companies', 'Solalium fees', 'naira', 'F', ['vendorSubscriptionCompany'], 0, 5000000, '₦ per month. 0 = no subscription for companies'],
-  ['subscriptionGraceDays', 'Days of grace after a subscription runs out', 'Solalium fees', 'number', 'F', ['subscriptionGraceDays'], 0, 60, 'days before listings are hidden'],
-  ['customerServicePct', 'Service charge added for the customer', 'Solalium fees', 'pct', 'F', ['customerServicePct'], 0, 0.3, 'of the items bought'],
-  ['vendorCommissionPct', 'Platform fee held back from the vendor', 'Solalium fees', 'pct', 'F', ['vendorCommissionPct'], 0, 0.3, 'of the items sold'],
-  // Installation by a Solalium installer
+  // How Solariun earns
+  ['vendorRegistrationFee', 'Vendor registration fee (one-time)', 'Solariun fees', 'naira', 'F', ['vendorRegistrationFee'], 0, 5000000, '₦ once per vendor, when registration is switched to paid'],
+  ['vendorSubscriptionSeller', 'Monthly subscription, sellers', 'Solariun fees', 'naira', 'F', ['vendorSubscriptionSeller'], 0, 5000000, '₦ per month. 0 = no subscription for sellers'],
+  ['vendorSubscriptionCompany', 'Monthly subscription, companies', 'Solariun fees', 'naira', 'F', ['vendorSubscriptionCompany'], 0, 5000000, '₦ per month. 0 = no subscription for companies'],
+  ['subscriptionGraceDays', 'Days of grace after a subscription runs out', 'Solariun fees', 'number', 'F', ['subscriptionGraceDays'], 0, 60, 'days before listings are hidden'],
+  ['customerServicePct', 'Service charge added for the customer', 'Solariun fees', 'pct', 'F', ['customerServicePct'], 0, 0.3, 'of the items bought'],
+  ['vendorCommissionPct', 'Platform fee held back from the vendor', 'Solariun fees', 'pct', 'F', ['vendorCommissionPct'], 0, 0.3, 'of the items sold'],
+  // Installation by a Solariun installer
   ['installPriceB1', 'Installation, up to 1 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b1'], 5000, 5000000, '₦ the customer pays'],
   ['installPriceB2', 'Installation, over 1 kW to 3 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b2'], 5000, 5000000, '₦ the customer pays'],
   ['installPriceB3', 'Installation, over 3 kW to 5 kW', 'Installation (installer jobs)', 'naira', 'I', ['prices', 'b3'], 5000, 5000000, '₦ the customer pays'],

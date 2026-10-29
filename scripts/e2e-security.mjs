@@ -227,7 +227,7 @@ step('session cookie is HttpOnly, SameSite=Lax, has an expiry; login response le
 // production cookies must be Secure: check in a fresh process with NODE_ENV=production
 const { spawnSync } = await import('node:child_process');
 const prodCheck = spawnSync(process.execPath, ['-e', `
-  process.env.NODE_ENV='production'; process.env.CLIENT_ORIGIN='https://solalium.example'; process.env.JWT_SECRET='x'.repeat(40); process.env.PAYSTACK_SECRET_KEY='sk_test_x';
+  process.env.NODE_ENV='production'; process.env.CLIENT_ORIGIN='https://solariun.example'; process.env.JWT_SECRET='x'.repeat(40); process.env.PAYSTACK_SECRET_KEY='sk_test_x';
   const { setSessionCookie } = await import('./src/lib/tokens.js');
   let header=''; setSessionCookie({ cookie:(n,v,o)=>{header=JSON.stringify(o)} }, { id:1, role:'individual', token_version:0 });
   console.log(header);`], { cwd: path.resolve('.'), encoding: 'utf8', input: '' });

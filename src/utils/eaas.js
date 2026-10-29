@@ -10,7 +10,7 @@
 // * Operating costs: maintenance, monitoring, administration, insurance, and a battery
 //   replacement reserve when the contract outlasts the battery.
 // * Risk allowance: the expected cost of defaults, recovering equipment and refurbishing it.
-// * Platform fee: Solalium's own fee, a percentage of the all-in monthly price.
+// * Platform fee: Solariun's own fee, a percentage of the all-in monthly price.
 //
 // Every number below is a placeholder until it is checked against real vendor and market data.
 // Phase 3: move EAAS_RULES into an admin-editable table.
@@ -18,7 +18,7 @@
 export const EAAS_RULES = {
   asOf: '2026-10-17',
 
-  // Solalium's fee, as a share of the price the customer pays each month.
+  // Solariun's fee, as a share of the price the customer pays each month.
   platformFeePct: 0.06,
 
   // Vendors choose their own target return (effective, per year) inside these limits.

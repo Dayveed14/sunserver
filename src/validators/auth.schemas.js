@@ -33,7 +33,7 @@ const addressSchema = z
 export { addressSchema };
 
 // 'seller' sells only. 'company' sells, installs and can offer Energy-as-a-Service.
-const vendorType = z.enum(['seller', 'company'], { errorMap: () => ({ message: 'Choose how you work with Solalium' }) });
+const vendorType = z.enum(['seller', 'company'], { errorMap: () => ({ message: 'Choose how you work with Solariun' }) });
 const ROLES = ['individual', 'business', 'vendor', 'installer'];
 
 export const registerSchema = z
@@ -52,7 +52,7 @@ export const registerSchema = z
       ctx.addIssue({ code: 'custom', path: ['companyName'], message: 'Enter the company name' });
     }
     if (v.role === 'vendor' && !v.vendorType) {
-      ctx.addIssue({ code: 'custom', path: ['vendorType'], message: 'Choose how you work with Solalium' });
+      ctx.addIssue({ code: 'custom', path: ['vendorType'], message: 'Choose how you work with Solariun' });
     }
   });
 
@@ -101,7 +101,7 @@ export const addAccountSchema = z
       ctx.addIssue({ code: 'custom', path: ['companyName'], message: 'Enter the company name' });
     }
     if (v.role === 'vendor' && !v.vendorType) {
-      ctx.addIssue({ code: 'custom', path: ['vendorType'], message: 'Choose how you work with Solalium' });
+      ctx.addIssue({ code: 'custom', path: ['vendorType'], message: 'Choose how you work with Solariun' });
     }
   });
 

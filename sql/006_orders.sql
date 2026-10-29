@@ -1,4 +1,4 @@
--- Solalium — Phase 4 schema: delivery prices per vendor, orders, payments.
+-- Solariun — Phase 4 schema: delivery prices per vendor, orders, payments.
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 
 USE solalium;

@@ -1,4 +1,4 @@
--- Solalium — Phase 4 schema: delivery addresses and product/deal pictures.
+-- Solariun — Phase 4 schema: delivery addresses and product/deal pictures.
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only. (The change that lets one email hold several account
 -- types is done by scripts/migrate.js, which init-db runs after these files.)
 

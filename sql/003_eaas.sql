@@ -1,4 +1,4 @@
--- Solalium — Phase 3 schema: how a vendor prices Energy-as-a-Service on a deal.
+-- Solariun — Phase 3 schema: how a vendor prices Energy-as-a-Service on a deal.
 -- The monthly price is worked out from these terms (see src/modules/marketplace/eaas.js), never typed in.
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 

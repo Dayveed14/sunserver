@@ -82,7 +82,7 @@ export function createAuthService({ users, otps, resets, mailer, config, now = (
       const owner = verifiedOthers[0];
       if (!(await bcrypt.compare(password, owner.password_hash))) {
         throw new HttpError(401, 'EXISTING_ACCOUNT_PASSWORD',
-          `This email already has a Solalium account. To add a ${ROLE_LABEL[role]} account, enter that account's current password.`);
+          `This email already has a Solariun account. To add a ${ROLE_LABEL[role]} account, enter that account's current password.`);
       }
       const t = now();
       const id = await users.create({ email, passwordHash: owner.password_hash, role, fullName, phone, companyName, address, verifiedAt: t, registrationFeeStatus: feeStatusFor(role), vendorType });

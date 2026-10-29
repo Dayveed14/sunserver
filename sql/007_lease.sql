@@ -1,4 +1,4 @@
--- Solalium — Phase 4 schema: lease to own as "pay small small" (3, 4, 6 or 12 months).
+-- Solariun — Phase 4 schema: lease to own as "pay small small" (3, 4, 6 or 12 months).
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 
 USE solalium;

@@ -18,7 +18,7 @@ if (!jwtSecret || jwtSecret.length < 32) {
 if (isProd) {
   const origin = process.env.CLIENT_ORIGIN ?? '';
   if (!/^https:\/\/[^/]+$/.test(origin)) {
-    throw new Error('CLIENT_ORIGIN must be set to your site address in production, starting with https:// and with no path or trailing slash (for example https://solalium.com).');
+    throw new Error('CLIENT_ORIGIN must be set to your site address in production, starting with https:// and with no path or trailing slash (for example https://solariun.com).');
   }
 }
 
@@ -50,7 +50,7 @@ export const env = {
 
   resend: {
     apiKey: process.env.RESEND_API_KEY ?? '',
-    from: process.env.MAIL_FROM ?? 'Solalium <onboarding@resend.dev>',
+    from: process.env.MAIL_FROM ?? 'Solariun <onboarding@resend.dev>',
   },
 
 

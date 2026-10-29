@@ -1,4 +1,4 @@
-// How Solalium earns money.
+// How Solariun earns money.
 //  0. A monthly subscription for vendors (sellers and companies). A price of 0 means that type pays nothing.
 //  1. A one-time registration fee paid by each vendor (only once registration is switched to paid: see config/launch.js).
 //  2. A service charge on every purchase, split between the two sides: the customer pays 10% on top of the items,

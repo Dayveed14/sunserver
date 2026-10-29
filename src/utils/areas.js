@@ -1,4 +1,4 @@
-// The two states Solalium delivers in for now, with the areas people pick from.
+// The two states Solariun delivers in for now, with the areas people pick from.
 // zone: "Central" = the core business and residential districts, "Inner" = built-up districts around it,
 // "Outer" = the edges and satellite towns. Coordinates are approximate area centres, used only to estimate
 // distance for delivery pricing and delivery times. They are not survey data.

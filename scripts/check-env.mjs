@@ -49,7 +49,7 @@ else if (e.DB_HOST) {
 }
 if (!dbOk && e.DB_HOST) void net;
 
-console.log(`\nSolalium production check\n${'-'.repeat(25)}`);
+console.log(`\nSolariun production check\n${'-'.repeat(25)}`);
 for (const p of problems) console.log(`FIX    ${p}`);
 for (const w of warnings) console.log(`NOTE   ${w}`);
 if (!problems.length && !warnings.length) console.log('Everything looks right.');

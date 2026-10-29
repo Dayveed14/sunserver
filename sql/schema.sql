@@ -1,4 +1,4 @@
--- Solalium — Phase 1 schema (MySQL 8 / MariaDB 10.5+)
+-- Solariun — Phase 1 schema (MySQL 8 / MariaDB 10.5+)
 -- Run with:  npm run db:init
 
 CREATE DATABASE IF NOT EXISTS solalium CHARACTER SET utf8mb4;

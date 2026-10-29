@@ -26,7 +26,7 @@ try {
 const app = createApp();
 const stopHousekeeping = startHousekeeping();
 const server = app.listen(env.port, () => {
-  console.log(`Solalium API listening on http://localhost:${env.port} (${env.nodeEnv})`);
+  console.log(`Solariun API listening on http://localhost:${env.port} (${env.nodeEnv})`);
 });
 
 // Render (and most hosts) send SIGTERM on every deploy. Finish the requests in flight, then close the database.
