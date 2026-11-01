@@ -42,6 +42,7 @@ const toDeal = (r) => ({
   eaasTerms: null,
   leaseTerms: null,
   items: [],
+  extras: [],
 });
 
 async function attachItems(deals) {
@@ -74,6 +75,8 @@ async function attachItems(deals) {
       overagePerKwh: num(t.overage_per_kwh),
     };
   }
+  const extras = await query(`SELECT deal_id, name, qty, unit_price FROM deal_extras WHERE deal_id IN (${marks}) ORDER BY id`, deals.map((d) => d.id));
+  for (const x of extras) byDeal.get(Number(x.deal_id)).extras.push({ name: x.name, qty: Number(x.qty), unitPrice: Number(x.unit_price) });
   for (const r of rows) {
     byDeal.get(Number(r.deal_id)).items.push({
       productId: Number(r.product_id),
@@ -88,6 +91,8 @@ async function attachItems(deals) {
       qty: Number(r.qty),
     });
   }
+  // What the listed items add up to at today's prices (a guide for the vendor; the customer pays the deal's own price).
+  for (const d of deals) d.itemsTotal = d.items.reduce((s, i) => s + i.price * i.qty, 0) + d.extras.reduce((s, x) => s + x.unitPrice * x.qty, 0);
   return deals;
 }
 
@@ -101,6 +106,13 @@ const writeItems = async (conn, dealId, items) => {
   await conn.execute('DELETE FROM deal_items WHERE deal_id = ?', [dealId]);
   for (const it of items) {
     await conn.execute('INSERT INTO deal_items (deal_id, product_id, qty) VALUES (?, ?, ?)', [dealId, it.productId, it.qty]);
+  }
+};
+
+const writeExtras = async (conn, dealId, extras = []) => {
+  await conn.execute('DELETE FROM deal_extras WHERE deal_id = ?', [dealId]);
+  for (const x of extras) {
+    await conn.execute('INSERT INTO deal_extras (deal_id, name, qty, unit_price) VALUES (?, ?, ?, ?)', [dealId, x.name, x.qty, x.unitPrice]);
   }
 };
 
@@ -168,6 +180,7 @@ export const dealsModel = {
         [vendorId, ...dealFields(d)]
       );
       await writeItems(conn, res.insertId, d.items);
+      await writeExtras(conn, res.insertId, d.extras);
       await writeTerms(conn, res.insertId, d.eaasTerms);
       await writeLease(conn, res.insertId, d.leaseTerms);
       return res.insertId;
@@ -184,6 +197,7 @@ export const dealsModel = {
       );
       if (res.affectedRows === 0) return false;
       await writeItems(conn, id, d.items);
+      await writeExtras(conn, id, d.extras);
       await writeTerms(conn, id, d.eaasTerms);
       await writeLease(conn, id, d.leaseTerms);
       return true;

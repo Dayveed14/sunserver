@@ -67,6 +67,12 @@ export async function migrate(conn, database = 'solalium') {
   await addColumn('vendor_profiles', 'verification_note', 'VARCHAR(500) NULL');
   await addColumn('vendor_profiles', 'verified_at', 'DATETIME NULL');
   // Monthly subscription: when a vendor is paid up to, and which reminders were already sent for that date.
+  // Product descriptions can be long now (up to 5,000 characters).
+  const [descCol] = await conn.query("SELECT data_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'products' AND column_name = 'description'", [database]);
+  if (descCol[0] && String(descCol[0].t).toLowerCase() === 'varchar') {
+    await conn.query('ALTER TABLE products MODIFY COLUMN description TEXT NULL');
+    console.log('Migrated: products.description is now TEXT.');
+  }
   await addColumn('vendor_profiles', 'subscription_paid_until', 'DATETIME NULL');
   await addColumn('vendor_profiles', 'sub_reminded_for', 'DATETIME NULL');
   await addColumn('vendor_profiles', 'sub_lapsed_notified_for', 'DATETIME NULL');

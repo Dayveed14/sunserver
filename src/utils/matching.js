@@ -273,10 +273,16 @@ export function dealSpecs(items) {
 
 // A deal must be a working system: panels, an inverter and a battery, with batteries that suit
 // the inverter's voltage and are bought in complete strings.
+// A system deal has panels, an inverter and a battery. Anything else is a bundle: still sold, but never matched to a sizing.
+export const isSystemDeal = (items) => ['panel', 'inverter', 'battery'].every((c) => items.some((i) => i.category === c));
+const hasCoreItem = (items) => items.some((i) => ['panel', 'inverter', 'battery'].includes(i.category));
+
 export function checkDealComposition(items) {
   const errors = [];
+  // A bundle of other products (cables, lights, a controller ...) needs no panel, inverter or battery.
+  if (!hasCoreItem(items)) return errors;
   const by = { panel: [], inverter: [], battery: [] };
-  for (const it of items) by[it.category].push(it);
+  for (const it of items) if (by[it.category]) by[it.category].push(it);
 
   if (by.panel.length === 0) errors.push(err('MISSING_PANEL', 'Add at least one solar panel product.'));
   if (by.inverter.length === 0) errors.push(err('MISSING_INVERTER', 'Add an inverter.'));
@@ -403,6 +409,7 @@ export function matchDeals(req, deals, plan, baseline) {
   for (const deal of deals) {
     if (deal.status !== 'active') continue;
     if (deal.items.some((i) => i.productStatus === 'archived')) continue;
+    if (!isSystemDeal(deal.items)) continue;
     const specs = dealSpecs(deal.items);
     const fit = dealFit(req, specs);
     if (!fit) continue;

@@ -119,7 +119,8 @@ assert.equal(pic.status, 200);
 
 // shop: state filter, product page, delivery
 const lagos = await client()('GET', '/shop/products?state=lagos');
-assert.ok(lagos.body.products.some((p) => p.id === pid && p.imageUrl));
+assert.ok(lagos.body.products.length > 0 && lagos.body.products.every((p) => p.vendor.state === 'lagos'));
+assert.ok((await client()('GET', `/shop/products/${pid}`)).body.product.imageUrl, 'the product page shows its picture');
 const abuja = await client()('GET', '/shop/products?state=abuja');
 assert.ok(!abuja.body.products.some((p) => p.id === pid));
 const page = await client()('GET', `/shop/products/${pid}?state=lagos&areaId=yaba`);
@@ -762,6 +763,42 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal((await admin('GET', '/admin/users/99999999')).status, 404);
   assert.ok(!JSON.stringify(det.body).includes('password'), 'no password hash is ever returned');
   step('admin sees full account details, counts and documents; nobody else can; no password data leaks');
+
+  // --- deals of any products, typed-in items, long descriptions, and suggestions for a budget
+  const longText = 'Features and what is in the box. '.repeat(100);
+  const cab = await vendor('POST', '/vendor/products', { category: 'cable', name: `Bundle cable ${stampB}`, rating: 0, price: 12000, inStock: true, status: 'active', description: longText });
+  assert.equal(cab.status, 201, JSON.stringify(cab.body));
+  assert.equal(cab.body.product.description.length, longText.trim().length, 'a long description is saved whole');
+  assert.equal((await vendor('POST', '/vendor/products', { category: 'cable', name: 'Too long', rating: 0, price: 12000, description: 'x'.repeat(5001) })).status, 400);
+  const bundle = await vendor('POST', '/vendor/deals', {
+    title: `Wiring bundle ${stampB}`, items: [{ productId: cab.body.product.id, qty: 2 }],
+    extras: [{ name: 'Installation kit', qty: 1, unitPrice: 15000 }, { name: 'Conduit', qty: 3, unitPrice: 2000 }],
+    installationIncluded: false, buyPrice: 40000, status: 'active',
+  });
+  assert.equal(bundle.status, 201, JSON.stringify(bundle.body));
+  assert.equal(bundle.body.deal.itemsTotal, 2 * 12000 + 15000 + 3 * 2000, 'the items add up');
+  assert.equal(bundle.body.deal.extras.length, 2);
+  assert.equal((await vendor('POST', '/vendor/deals', { title: 'Empty deal', items: [], extras: [], buyPrice: 40000 })).status, 400, 'a deal needs at least one item');
+  assert.equal((await vendor('POST', '/vendor/deals', { title: 'Bad item', items: [], extras: [{ name: 'x', qty: 1, unitPrice: 5 }], buyPrice: 40000 })).status, 400);
+  const edited = await vendor('PUT', `/vendor/deals/${bundle.body.deal.id}`, { title: `Wiring bundle ${stampB}`, items: [{ productId: cab.body.product.id, qty: 1 }], extras: [{ name: 'Installation kit', qty: 1, unitPrice: 15000 }], installationIncluded: false, buyPrice: 30000, status: 'active' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.equal(edited.body.deal.itemsTotal, 27000);
+  const page = await anon('GET', `/shop/deals/${bundle.body.deal.id}`);
+  assert.equal(page.status, 200);
+  assert.equal(page.body.deal.isSystem, false);
+  assert.ok(page.body.deal.extras.some((x) => x.name === 'Installation kit'));
+  assert.ok((await anon('GET', '/shop/deals?state=lagos')).body.deals.some((d) => d.id === bundle.body.deal.id), 'a bundle is listed in the shop');
+  const pick = await anon('GET', '/shop/budget-picks?state=lagos&budget=35000');
+  assert.equal(pick.status, 200);
+  assert.ok(pick.body.deals.some((d) => d.id === bundle.body.deal.id), 'the bundle fits a ₦35,000 budget');
+  assert.equal(pick.body.systemTooSmall, true, 'but no full system fits, so the red note shows');
+  assert.ok(pick.body.closestSystem.shortfall > 0);
+  assert.equal((await anon('GET', '/shop/budget-picks?state=lagos&budget=abc')).status, 400);
+  assert.equal((await anon('GET', '/shop/budget-picks?budget=50000')).status, 400);
+  const tiny = await anon('GET', '/shop/budget-picks?state=lagos&budget=1000');
+  assert.equal(tiny.status, 200);
+  assert.equal(tiny.body.nothingFits, true);
+  step('deals can hold any products and typed-in items with an automatic total; long descriptions save; budget suggestions list deals/items or say how short the budget is');
 }
 
 server.close();

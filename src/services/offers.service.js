@@ -3,6 +3,7 @@ import { HttpError } from '../lib/httpError.js';
 import { allInOneOptions, cheapestSystem, evaluateBudget, EXTRAS_INFO } from '../utils/budget.js';
 import { isCore } from '../utils/productCategories.js';
 import {
+  isSystemDeal,
   EXTRA_CATEGORIES,
   PLANS,
   dealFit,
@@ -51,6 +52,8 @@ export const publicDeal = (deal) => ({
     productId: i.productId, name: i.name, brand: i.brand, category: i.category,
     rating: i.rating, systemVoltage: i.systemVoltage, qty: i.qty,
   })),
+  extras: (deal.extras ?? []).map((x) => ({ name: x.name, qty: x.qty })),
+  isSystem: isSystemDeal(deal.items),
 });
 
 const CORE = ['panel', 'inverter', 'battery'];

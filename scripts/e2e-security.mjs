@@ -107,7 +107,7 @@ const PUBLIC = new Set([
   'POST /auth/register', 'POST /auth/verify-otp', 'POST /auth/resend-otp', 'POST /auth/login', 'POST /auth/forgot-password', 'POST /auth/reset-password', 'POST /auth/logout', 'GET /auth/areas',
   'GET /analysis/catalog/:segment', 'POST /analysis/estimate',
   'GET /dispatch/info', 'POST /dispatch/confirm', // protected by a signed link, tested below
-  'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /partners', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/products/:id', 'GET /shop/deals/:id',
+  'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /partners', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/budget-picks', 'GET /shop/products/:id', 'GET /shop/deals/:id',
   'GET /images/:id', 'POST /webhooks/paystack', // the webhook is protected by its signature, tested below
 ]);
 const routeDir = path.resolve('src/routes');

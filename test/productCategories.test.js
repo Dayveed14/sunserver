@@ -101,11 +101,19 @@ describe('deals and the build-your-own screen only use panels, inverters and bat
     models.setVendor(1, 'Sun Co', 'verified');
     vendorSvc = createCatalogService(models);
   });
-  it('a vendor cannot put a cable or a kit into a deal', async () => {
+  it('a vendor can make a bundle of other products, but a part-system is refused', async () => {
     const cable = await vendorSvc.createProduct(1, { ...base, category: 'cable', rating: 0, systemVoltage: null, batteryType: null, brand: null, warrantyYears: null, description: null });
-    const err = await failsWith(vendorSvc.createDeal(1, { title: 'x', items: [{ productId: cable.id, qty: 1 }], buyPrice: 100000, status: 'active' }));
+    const deal = await vendorSvc.createDeal(1, { title: 'Wiring pack', items: [{ productId: cable.id, qty: 2 }], extras: [{ name: 'Conduit', qty: 3, unitPrice: 2000 }], buyPrice: 100000, status: 'active' });
+    assert.equal(deal.specs.panelKwp, 0);
+    const panel = await vendorSvc.createProduct(1, { ...base, category: 'panel', rating: 550 });
+    const err = await failsWith(vendorSvc.createDeal(1, { title: 'Half a system', items: [{ productId: panel.id, qty: 2 }], buyPrice: 100000, status: 'active' }));
     assert.equal(err.code, 'INVALID_DEAL');
-    assert.match(err.message, /panels, inverters and batteries/);
+    assert.match(err.message, /inverter/i);
+  });
+  it('energy as a service needs a full system, not a bundle', async () => {
+    const cable = await vendorSvc.createProduct(1, { ...base, category: 'cable', rating: 0, systemVoltage: null, batteryType: null, brand: null, warrantyYears: null, description: null });
+    const err = await failsWith(vendorSvc.createDeal(1, { title: 'Wiring', items: [{ productId: cable.id, qty: 1 }], eaas: { tenorMonths: 36, annualReturn: 0.2 }, buyPrice: 100000, status: 'active' }));
+    assert.ok(err);
   });
   it('other products are never offered in the build-your-own list', async () => {
     models.productsModel.create(1, { category: 'cable', name: 'Cable', rating: 0, price: 100, inStock: true, status: 'active' });

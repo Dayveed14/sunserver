@@ -177,3 +177,18 @@ CREATE TABLE IF NOT EXISTS subscription_payments (
   KEY idx_subpay_vendor (vendor_id, id),
   CONSTRAINT fk_subpay_vendor FOREIGN KEY (vendor_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- ===== Phase 8c: deals of any products, longer product descriptions =====
+-- Longer product descriptions (up to 5,000 characters).
+ALTER TABLE products MODIFY COLUMN description TEXT NULL;
+
+-- ===== 013_deal_extras =====
+CREATE TABLE IF NOT EXISTS deal_extras (
+  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  deal_id    BIGINT UNSIGNED NOT NULL,
+  name       VARCHAR(120) NOT NULL,
+  qty        SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  unit_price DECIMAL(14,2) NOT NULL,
+  KEY idx_deal_extras_deal (deal_id),
+  CONSTRAINT fk_deal_extras_deal FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE CASCADE
+) ENGINE=InnoDB;

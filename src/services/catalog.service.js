@@ -1,8 +1,7 @@
 import { HttpError } from '../lib/httpError.js';
-import { isCore } from '../utils/productCategories.js';
 import { EAAS_RULES, computeEaas, componentsFromItems } from '../utils/eaas.js';
 import { leaseOptions } from '../utils/lease.js';
-import { checkDealComposition, dealSpecs, plansOffered } from '../utils/matching.js';
+import { checkDealComposition, dealSpecs, isSystemDeal, plansOffered } from '../utils/matching.js';
 
 // Vendor-side rules: what a vendor may list and how a deal must be put together.
 // Models are injected so the rules can be tested without a database.
@@ -21,12 +20,6 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
     const resolved = [];
     for (const { productId, qty } of items) {
       const p = byId.get(productId);
-      // Deals are complete solar systems: only panels, inverters and batteries go into them.
-      if (p && !isCore(p.category)) {
-        throw new HttpError(400, 'INVALID_DEAL', 'Deals can only include solar panels, inverters and batteries. Sell other products on their own in the shop.', {
-          fields: { items: 'Pick a panel, an inverter and a battery.' },
-        });
-      }
       if (!p) {
         throw new HttpError(400, 'INVALID_DEAL', 'One of the products is not in your catalogue.', {
           fields: { items: 'Pick products from your own catalogue.' },
@@ -102,8 +95,10 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
     async createDeal(vendorId, data) {
       if (data.eaas) await assertCompany(vendorId);
       const items = await resolveItems(vendorId, data.items);
+      const extras = data.extras ?? [];
+      if (data.eaas && !isSystemDeal(items)) throw new HttpError(400, 'INVALID_DEAL', 'Energy as a service needs a full system: panels, an inverter and a battery.', { fields: { items: 'Add panels, an inverter and a battery to offer energy as a service.' } });
       await checkImage(vendorId, data.imageId);
-      const id = await dealsModel.create(vendorId, { ...data, items });
+      const id = await dealsModel.create(vendorId, { ...data, items, extras });
       if (data.imageId != null) await dealsModel.setImage?.(id, data.imageId);
       return withSpecs(await dealsModel.findOwned(id, vendorId));
     },
@@ -112,8 +107,10 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
       if (!(await dealsModel.findOwned(id, vendorId))) throw notFound('Deal');
       if (data.eaas) await assertCompany(vendorId);
       const items = await resolveItems(vendorId, data.items);
+      const extras = data.extras ?? [];
+      if (data.eaas && !isSystemDeal(items)) throw new HttpError(400, 'INVALID_DEAL', 'Energy as a service needs a full system: panels, an inverter and a battery.', { fields: { items: 'Add panels, an inverter and a battery to offer energy as a service.' } });
       await checkImage(vendorId, data.imageId);
-      await dealsModel.update(id, vendorId, { ...data, items });
+      await dealsModel.update(id, vendorId, { ...data, items, extras });
       await dealsModel.setImage?.(id, data.imageId ?? null);
       return withSpecs(await dealsModel.findOwned(id, vendorId));
     },

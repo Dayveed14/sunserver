@@ -13,5 +13,6 @@ export const listProducts = asyncHandler(async (req, res) => {
   res.json(await shopService.listProducts({ state: queryText(req.query.state), category: queryText(req.query.category), q: queryText(req.query.q) }));
 });
 export const listDeals = asyncHandler(async (req, res) => res.json(await shopService.listDeals({ state: queryText(req.query.state) })));
+export const budgetPicks = asyncHandler(async (req, res) => res.json(await shopService.budgetPicks({ state: queryText(req.query.state), budget: queryText(req.query.budget) })));
 export const productPage = asyncHandler(async (req, res) => res.json(await shopService.productPage(numId(req.params.id), destination(req))));
 export const dealPage = asyncHandler(async (req, res) => res.json(await shopService.dealPage(numId(req.params.id), destination(req))));

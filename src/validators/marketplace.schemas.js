@@ -20,7 +20,7 @@ export const productSchema = z
     inStock: z.boolean().default(true),
     includesController: z.boolean().default(true),
     warrantyYears: years,
-    description: optionalText(500),
+    description: optionalText(5000),
     status: z.enum(['active', 'hidden']).default('active'),
     imageId: z.number().int().positive().nullable().optional(),
   })
@@ -61,6 +61,13 @@ const itemSchema = z.object({
   qty: z.number().int().min(1, 'At least 1.').max(500, 'That is a lot. Check the quantity.'),
 });
 
+// An item the vendor types in (not one of their listed products): a name, how many, and the price of one.
+const extraSchema = z.object({
+  name: z.string().trim().min(2, 'Give the item a name.').max(120),
+  qty: z.number().int().min(1, 'At least 1.').max(500, 'That is a lot. Check the quantity.'),
+  unitPrice: naira,
+});
+
 const leaseSchema = z
   .object({
     depositPct: z.number({ invalid_type_error: 'Enter a percentage.' }),
@@ -90,7 +97,8 @@ export const dealSchema = z
   .object({
     title: z.string().trim().min(3, 'Give the deal a name.').max(120),
     description: optionalText(600),
-    items: z.array(itemSchema).min(3, 'A deal needs panels, an inverter and a battery.').max(10),
+    items: z.array(itemSchema).max(20).default([]),
+    extras: z.array(extraSchema).max(20).default([]),
     installationIncluded: z.boolean().default(true),
     warrantyYears: years,
     buyPrice: naira.nullable().optional(),
@@ -101,6 +109,7 @@ export const dealSchema = z
     status: z.enum(['draft', 'active', 'paused']).default('draft'),
   })
   .superRefine((d, ctx) => {
+    if (d.items.length + d.extras.length === 0) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Add at least one item to the deal.' });
     const ids = d.items.map((i) => i.productId);
     if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Each product can only appear once.' });
     if (d.lease && d.buyPrice == null) {
@@ -114,6 +123,7 @@ export const dealSchema = z
     title: d.title,
     description: d.description,
     items: d.items,
+    extras: d.extras,
     installationIncluded: d.installationIncluded,
     warrantyYears: d.warrantyYears,
     buyPrice: d.buyPrice ?? null,

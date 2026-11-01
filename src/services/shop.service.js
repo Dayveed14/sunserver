@@ -3,7 +3,7 @@ import { CORE_CATEGORIES, isCategory } from '../utils/productCategories.js';
 import { SLA_RULES, estimateDelivery } from '../utils/sla.js';
 import { findArea, stateName } from '../utils/areas.js';
 import { leaseOptions } from '../utils/lease.js';
-import { dealSpecs, plansOffered } from '../utils/matching.js';
+import { dealSpecs, isSystemDeal, plansOffered } from '../utils/matching.js';
 import { publicDeal, publicProduct } from './offers.service.js';
 
 
@@ -75,6 +75,46 @@ export function createShopService({ productsModel, dealsModel, feesService, conf
           ...publicDeal(d), specs: dealSpecs(d.items), plans: plansOffered(d).filter((p) => p !== 'eaas'), buyPrice: d.buyPrice,
           vendor: { ...publicDeal(d).vendor, areaName: findArea(d.vendorState, d.vendorArea)?.name ?? null },
         })),
+      };
+    },
+
+    // "What can I get for my budget?": deals first, then a few single items, or an honest note when the budget is too small.
+    async budgetPicks({ state, budget }) {
+      needState(state);
+      const amount = Math.round(Number(budget));
+      if (!Number.isFinite(amount) || amount < 1000 || amount > 2_000_000_000) throw new HttpError(400, 'VALIDATION_ERROR', 'Enter a budget in naira.');
+      const area = (x) => ({ ...x, vendor: { ...x.vendor, areaName: findArea(x.vendorState, x.vendorArea)?.name ?? null } });
+
+      const allDeals = (await dealsModel.listActive({ ...opt, state }))
+        .filter((d) => hasLocation(d) && d.buyPrice != null && !d.items.some((i) => i.productStatus === 'archived'));
+      const fitting = allDeals.filter((d) => d.buyPrice <= amount).sort((a, b) => b.buyPrice - a.buyPrice).slice(0, 3);
+      const deals = fitting.map((d) => area({ ...publicDeal(d), specs: dealSpecs(d.items), buyPrice: d.buyPrice, vendorState: d.vendorState, vendorArea: d.vendorArea }));
+
+      const products = (await productsModel.listPublic({ ...opt, state, limit: 1000 })).filter((p) => hasLocation(p) && p.inStock && p.price > 0);
+      // Two or three useful things that fit together inside the budget, one of each kind, most useful first.
+      const ORDER = ['kit', 'portable_power', 'inverter', 'battery', 'panel', 'lighting', 'controller', 'generator', 'pump', 'streetlight'];
+      const picks = [];
+      let left = amount;
+      for (const category of ORDER) {
+        if (picks.length === 3) break;
+        const slotsLeft = 3 - picks.length;
+        const cap = Math.min(left, Math.ceil((left / slotsLeft) * 1.5));
+        const best = products.filter((p) => p.category === category && p.price <= cap).sort((a, b) => b.price - a.price)[0];
+        if (best) { picks.push(best); left -= best.price; }
+      }
+      const items = picks.map((p) => area({ ...publicProduct(p), vendorState: p.vendorState, vendorArea: p.vendorArea }));
+
+      const cheapestSystem = allDeals.filter((d) => isSystemDeal(d.items)).sort((a, b) => a.buyPrice - b.buyPrice)[0] ?? null;
+      const systemFits = deals.some((d) => d.isSystem);
+      const cheapestAny = [...allDeals.map((d) => ({ kind: 'deal', name: d.title, price: d.buyPrice })), ...products.map((p) => ({ kind: 'product', name: p.name, price: p.price }))].sort((a, b) => a.price - b.price)[0] ?? null;
+      return {
+        state, stateName: stateName(state), budget: amount,
+        deals, items, itemsTotal: items.reduce((s, i) => s + i.price, 0),
+        // The red note: no complete system fits, so say how far off the nearest one is.
+        systemTooSmall: !systemFits,
+        closestSystem: !systemFits && cheapestSystem ? { title: cheapestSystem.title, price: cheapestSystem.buyPrice, shortfall: cheapestSystem.buyPrice - amount, dealId: cheapestSystem.id } : null,
+        nothingFits: deals.length === 0 && items.length === 0,
+        closest: deals.length === 0 && items.length === 0 && cheapestAny ? { ...cheapestAny, shortfall: cheapestAny.price - amount } : null,
       };
     },
 

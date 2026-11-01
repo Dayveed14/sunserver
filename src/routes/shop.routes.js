@@ -9,6 +9,7 @@ router.use(shopLimiter);
 
 router.get('/products', c.listProducts);
 router.get('/deals', c.listDeals);
+router.get('/budget-picks', c.budgetPicks);
 router.get('/products/:id', c.productPage);
 router.get('/deals/:id', c.dealPage);
 
