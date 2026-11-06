@@ -1,4 +1,5 @@
 import { HttpError } from '../lib/httpError.js';
+import { imageIdsIn } from '../utils/blogTaxonomy.js';
 
 const notFound = () => new HttpError(404, 'NOT_FOUND', 'Article not found.');
 
@@ -6,7 +7,7 @@ export const slugify = (title) =>
   title.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90) || 'article';
 
 // A short plain-text summary for search results and link previews when the admin did not write one.
-const autoSummary = (body) => body.replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim().slice(0, 155).replace(/\s\S*$/, '…');
+const autoSummary = (body) => body.replace(/\[\[image:[^\]]*\]\]/g, ' ').replace(/[*_`]/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/^[#>\-\s]+/gm, '').replace(/\s+/g, ' ').trim().slice(0, 155).replace(/\s\S*$/, '…');
 
 export function createBlogService({ articlesModel, imagesModel = null, auditModel }) {
   async function uniqueSlug(title, exceptId = null) {
@@ -19,6 +20,15 @@ export function createBlogService({ articlesModel, imagesModel = null, auditMode
     if (imageId == null) return;
     if (imagesModel && !(await imagesModel.exists?.(imageId))) throw new HttpError(400, 'VALIDATION_ERROR', 'That picture could not be found. Upload it again.');
   }
+
+  // Pictures placed inside the text must exist; the stored text keeps only the picture's number.
+  async function checkBodyImages(body) {
+    if (!imagesModel?.exists) return;
+    for (const id of imageIdsIn(body)) {
+      if (!(await imagesModel.exists(id))) throw new HttpError(400, 'VALIDATION_ERROR', 'A picture in the text could not be found. Upload it again.', { fields: { body: 'A picture in the text could not be found. Upload it again.' } });
+    }
+  }
+  const clean = (data) => ({ ...data, eventDate: data.section === 'events' ? data.eventDate ?? null : null, eventPlace: data.section === 'events' ? data.eventPlace || null : null });
 
   return {
     // ---- public ----
@@ -39,6 +49,8 @@ export function createBlogService({ articlesModel, imagesModel = null, auditMode
     },
     async create(adminId, data) {
       await checkImage(data.imageId);
+      await checkBodyImages(data.body);
+      data = clean(data);
       const id = await articlesModel.create({ ...data, summary: data.summary || autoSummary(data.body), slug: await uniqueSlug(data.title), authorId: adminId });
       await auditModel.add({ adminId, action: 'blog.create', target: `article:${id}`, detail: { title: data.title, status: data.status } });
       return { article: await articlesModel.findById(id) };
@@ -47,6 +59,8 @@ export function createBlogService({ articlesModel, imagesModel = null, auditMode
       const cur = await articlesModel.findById(id);
       if (!cur) throw notFound();
       await checkImage(data.imageId);
+      await checkBodyImages(data.body);
+      data = clean(data);
       // The address stays the same once an article is live, so links people shared keep working.
       const slug = cur.status === 'published' && cur.publishedAt ? cur.slug : await uniqueSlug(data.title, id);
       await articlesModel.update(id, { ...data, summary: data.summary || autoSummary(data.body), slug });

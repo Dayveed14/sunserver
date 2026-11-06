@@ -103,7 +103,7 @@ describe('deals and the build-your-own screen only use panels, inverters and bat
   });
   it('a vendor can make a bundle of other products, but a part-system is refused', async () => {
     const cable = await vendorSvc.createProduct(1, { ...base, category: 'cable', rating: 0, systemVoltage: null, batteryType: null, brand: null, warrantyYears: null, description: null });
-    const deal = await vendorSvc.createDeal(1, { title: 'Wiring pack', items: [{ productId: cable.id, qty: 2 }], extras: [{ name: 'Conduit', qty: 3, unitPrice: 2000 }], buyPrice: 100000, status: 'active' });
+    const deal = await vendorSvc.createDeal(1, { title: 'Wiring pack', items: [{ productId: cable.id, qty: 2 }], extras: [{ name: 'Conduit', qty: 3, unitPrice: 2000 }], buyPrice: 15000, status: 'active' });
     assert.equal(deal.specs.panelKwp, 0);
     const panel = await vendorSvc.createProduct(1, { ...base, category: 'panel', rating: 550 });
     const err = await failsWith(vendorSvc.createDeal(1, { title: 'Half a system', items: [{ productId: panel.id, qty: 2 }], buyPrice: 100000, status: 'active' }));

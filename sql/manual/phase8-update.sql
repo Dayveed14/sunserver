@@ -192,3 +192,9 @@ CREATE TABLE IF NOT EXISTS deal_extras (
   KEY idx_deal_extras_deal (deal_id),
   CONSTRAINT fk_deal_extras_deal FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Phase 8f: blog sections, categories and events. Run once on TiDB.
+ALTER TABLE articles ADD COLUMN section VARCHAR(20) NOT NULL DEFAULT 'news';
+ALTER TABLE articles ADD COLUMN category VARCHAR(30) NOT NULL DEFAULT 'news';
+ALTER TABLE articles ADD COLUMN event_date DATE NULL;
+ALTER TABLE articles ADD COLUMN event_place VARCHAR(120) NULL;

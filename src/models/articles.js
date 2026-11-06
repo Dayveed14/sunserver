@@ -4,12 +4,19 @@ import { imageUrl } from '../utils/images.js';
 const toArticle = (r, withBody = true) => ({
   id: Number(r.id), slug: r.slug, title: r.title, summary: r.summary, ...(withBody ? { body: r.body } : {}),
   imageId: r.image_id == null ? null : Number(r.image_id), imageUrl: imageUrl(r.image_id), status: r.status,
+  section: r.section ?? 'news', category: r.category ?? 'news',
+  eventDate: r.event_date ? new Date(r.event_date).toISOString().slice(0, 10) : null, eventPlace: r.event_place ?? null,
   publishedAt: r.published_at, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export const articlesModel = {
-  async listPublished({ limit = 50, offset = 0 } = {}) {
-    const rows = await query(`SELECT id, slug, title, summary, image_id, status, published_at, created_at, updated_at FROM articles WHERE status = 'published' ORDER BY published_at DESC, id DESC LIMIT ${Number(limit) | 0} OFFSET ${Number(offset) | 0}`);
+  async listPublished({ limit = 50, offset = 0, section = null, category = null } = {}) {
+    // section and category are checked against fixed lists before they get here; they are still passed as parameters.
+    const where = ["status = 'published'"];
+    const params = [];
+    if (section) { where.push('section = ?'); params.push(section); }
+    if (category) { where.push('category = ?'); params.push(category); }
+    const rows = await query(`SELECT id, slug, title, summary, image_id, section, category, event_date, event_place, status, published_at, created_at, updated_at FROM articles WHERE ${where.join(' AND ')} ORDER BY published_at DESC, id DESC LIMIT ${Number(limit) | 0} OFFSET ${Number(offset) | 0}`, params);
     return rows.map((r) => toArticle(r, false));
   },
   async findPublishedBySlug(slug) {
@@ -17,7 +24,7 @@ export const articlesModel = {
     return rows[0] ? toArticle(rows[0]) : null;
   },
   async listAll() {
-    const rows = await query('SELECT id, slug, title, summary, image_id, status, published_at, created_at, updated_at FROM articles ORDER BY id DESC LIMIT 300');
+    const rows = await query('SELECT id, slug, title, summary, image_id, section, category, event_date, event_place, status, published_at, created_at, updated_at FROM articles ORDER BY id DESC LIMIT 300');
     return rows.map((r) => toArticle(r, false));
   },
   async findById(id) {
@@ -28,19 +35,19 @@ export const articlesModel = {
     const rows = await query('SELECT id FROM articles WHERE slug = ? AND id <> ? LIMIT 1', [slug, exceptId ?? 0]);
     return rows.length > 0;
   },
-  async create({ slug, title, summary, body, imageId, status, authorId }) {
+  async create({ slug, title, summary, body, imageId, section, category, eventDate, eventPlace, status, authorId }) {
     const res = await query(
-      `INSERT INTO articles (slug, title, summary, body, image_id, status, author_id, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ${status === 'published' ? 'UTC_TIMESTAMP()' : 'NULL'})`,
-      [slug, title, summary, body, imageId ?? null, status, authorId]
+      `INSERT INTO articles (slug, title, summary, body, image_id, section, category, event_date, event_place, status, author_id, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${status === 'published' ? 'UTC_TIMESTAMP()' : 'NULL'})`,
+      [slug, title, summary, body, imageId ?? null, section, category, eventDate ?? null, eventPlace ?? null, status, authorId]
     );
     return Number(res.insertId);
   },
   // published_at is set the first time an article goes live and kept after that, so editing never reshuffles the blog.
-  async update(id, { slug, title, summary, body, imageId, status }) {
+  async update(id, { slug, title, summary, body, imageId, section, category, eventDate, eventPlace, status }) {
     await query(
-      `UPDATE articles SET slug = ?, title = ?, summary = ?, body = ?, image_id = ?, status = ?,
+      `UPDATE articles SET slug = ?, title = ?, summary = ?, body = ?, image_id = ?, section = ?, category = ?, event_date = ?, event_place = ?, status = ?,
          published_at = CASE WHEN ? = 'published' AND published_at IS NULL THEN UTC_TIMESTAMP() ELSE published_at END WHERE id = ?`,
-      [slug, title, summary, body, imageId ?? null, status, status, id]
+      [slug, title, summary, body, imageId ?? null, section, category, eventDate ?? null, eventPlace ?? null, status, status, id]
     );
   },
   async remove(id) {

@@ -215,8 +215,22 @@ describe('vendor catalogue rules', () => {
     svc = createCatalogService(models);
   });
   const prod = (category, rating, voltage) => ({ category, name: `${category} ${rating}`, rating, systemVoltage: voltage ?? null, price: 100000, inStock: true, status: 'active' });
-  const dealData = (items) => ({ title: 'Starter', description: null, items, installationIncluded: true, warrantyYears: null, buyPrice: 900000, leaseDeposit: null, leaseMonthly: null, leaseMonths: null, rentMonthly: null, eaasMonthly: null, eaasMonths: null, status: 'active' });
+  const dealData = (items) => ({ title: 'Starter', description: null, items, installationIncluded: true, warrantyYears: null, buyPrice: 350000, leaseDeposit: null, leaseMonthly: null, leaseMonths: null, rentMonthly: null, eaasMonthly: null, eaasMonths: null, status: 'active' });
 
+  it('refuses a buy price above the items total, and allows equal or lower', async () => {
+    const a = await svc.createProduct(1, prod('panel', 550));
+    const b = await svc.createProduct(1, prod('inverter', 1.5, 12));
+    const c = await svc.createProduct(1, prod('battery', 2.4, 12));
+    const items = [{ productId: a.id, qty: 2 }, { productId: b.id, qty: 1 }, { productId: c.id, qty: 1 }]; // 400,000
+    const err = await svc.createDeal(1, { ...dealData(items), buyPrice: 400001 }).catch((e) => e);
+    assert.equal(err.code, 'INVALID_DEAL');
+    assert.match(err.details.fields.buyPrice, /400,000/);
+    assert.ok(await svc.createDeal(1, { ...dealData(items), buyPrice: 400000 }));
+    const ok = await svc.createDeal(1, { ...dealData(items), buyPrice: 380000, extras: [{ name: 'Wire', qty: 1, unitPrice: 50000 }] }); // total 450,000
+    assert.ok(ok.id); // the extras count toward the ceiling (450,000)
+    const upd = await svc.updateDeal(1, ok.id, { ...dealData(items), buyPrice: 450001 }).catch((e) => e);
+    assert.equal(upd.code, 'INVALID_DEAL');
+  });
   it('builds a deal only from the vendor\'s own products', async () => {
     const a = await svc.createProduct(1, prod('panel', 550));
     const b = await svc.createProduct(1, prod('inverter', 1.5, 12));

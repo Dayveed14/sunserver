@@ -39,6 +39,17 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
     return resolved;
   }
 
+  // The buy price is a deal price, so it cannot be above what the same items cost on their own (listed prices + typed-in items).
+  function checkBuyPrice(buyPrice, items, extras) {
+    if (buyPrice == null) return;
+    const total = items.reduce((sum, i) => sum + i.price * i.qty, 0) + extras.reduce((sum, x) => sum + x.unitPrice * x.qty, 0);
+    if (buyPrice > total) {
+      throw new HttpError(400, 'INVALID_DEAL', `The buy price cannot be more than the items total (₦${total.toLocaleString('en-NG')}).`, {
+        fields: { buyPrice: `Cannot be more than the items total, ₦${total.toLocaleString('en-NG')}.` },
+      });
+    }
+  }
+
   // A vendor can only attach a picture they uploaded themselves.
   async function checkImage(vendorId, imageId) {
     if (imageId == null || !imagesModel) return;
@@ -97,6 +108,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
       const items = await resolveItems(vendorId, data.items);
       const extras = data.extras ?? [];
       if (data.eaas && !isSystemDeal(items)) throw new HttpError(400, 'INVALID_DEAL', 'Energy as a service needs a full system: panels, an inverter and a battery.', { fields: { items: 'Add panels, an inverter and a battery to offer energy as a service.' } });
+      checkBuyPrice(data.buyPrice, items, extras);
       await checkImage(vendorId, data.imageId);
       const id = await dealsModel.create(vendorId, { ...data, items, extras });
       if (data.imageId != null) await dealsModel.setImage?.(id, data.imageId);
@@ -109,6 +121,7 @@ export function createCatalogService({ productsModel, dealsModel, requestsModel,
       const items = await resolveItems(vendorId, data.items);
       const extras = data.extras ?? [];
       if (data.eaas && !isSystemDeal(items)) throw new HttpError(400, 'INVALID_DEAL', 'Energy as a service needs a full system: panels, an inverter and a battery.', { fields: { items: 'Add panels, an inverter and a battery to offer energy as a service.' } });
+      checkBuyPrice(data.buyPrice, items, extras);
       await checkImage(vendorId, data.imageId);
       await dealsModel.update(id, vendorId, { ...data, items, extras });
       await dealsModel.setImage?.(id, data.imageId ?? null);
