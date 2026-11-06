@@ -688,6 +688,181 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   void nPanels;
 }
 
+// ---------- field site audits: request, assign, survey, result, options, reopen, privacy ----------
+{
+  const biz = await signUp('business', 'Plaza Traders', `e2e-biz-${stamp}@example.test`, { state: 'abuja', areaId: 'wuse' });
+  const other = await signUp('business', 'Other Traders', `e2e-biz2-${stamp}@example.test`, { state: 'abuja', areaId: 'wuse' });
+  const person = buyer; // an individual account
+  const site = { state: 'abuja', areaId: 'wuse', line: 'Shop 14, Ceddi Plaza, Central Business District', preferredDate: '2026-12-01', notes: 'Ask for Mr Ade' };
+
+  // only a business may ask; the form is checked
+  assert.equal((await person('POST', '/audits', site)).status, 403, 'individuals use the normal assessment');
+  assert.equal((await client()('POST', '/audits', site)).status, 401);
+  assert.equal((await biz('POST', '/audits', { ...site, line: 'x' })).status, 400);
+  const req = await biz('POST', '/audits', site);
+  assert.equal(req.status, 201, JSON.stringify(req.body));
+  const ref = req.body.audit.ref;
+  assert.match(ref, /^AU-[A-Z0-9]{6}$/);
+  assert.equal(req.body.audit.status, 'requested');
+  assert.ok(mails.some((m) => m.includes(`New energy assessment request · ${ref}`)), 'the admin is told');
+  assert.ok(mails.some((m) => m.includes(`We received your energy assessment request · ${ref}`)), 'the business is told');
+  assert.equal((await other('GET', `/audits/${ref}`)).status, 404, 'another business cannot see it');
+  assert.equal((await biz('GET', '/audits/not-a-ref')).status, 404);
+
+  // admin creates a field agent (cannot reuse an email), the agent signs in
+  const agentEmail = `e2e-agent-${stamp}@example.test`;
+  assert.equal((await biz('POST', '/admin/field-agents', { fullName: 'Agent Ade', email: agentEmail })).status, 403);
+  assert.equal((await admin('POST', '/admin/field-agents', { fullName: 'Agent Ade', email: `e2e-biz-${stamp}@example.test` })).status, 409, 'an email with an account cannot become an agent');
+  const made = await admin('POST', '/admin/field-agents', { fullName: 'Agent Ade', email: agentEmail, phone: '+2348031234567' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const agentId = made.body.agent.id;
+  assert.ok(mails.some((m) => m.includes('Your Solariun field agent account')), 'the agent gets a set-password email');
+  const [resetRow] = await query('SELECT id FROM password_resets WHERE user_id = ? AND used_at IS NULL', [agentId]);
+  assert.ok(resetRow, 'a password link exists');
+  await query('UPDATE users SET password_hash = ? WHERE id = ?', [await bcrypt.hash('Passw0rd!long', 4), agentId]);
+  const agent = client();
+  const login = await agent('POST', '/auth/login', { email: agentEmail, password: 'Passw0rd!long' });
+  assert.equal(login.status, 200, JSON.stringify(login.body));
+  assert.equal(login.body.user.role, 'field_agent');
+  assert.equal((await client()('POST', '/auth/register', { role: 'field_agent', fullName: 'Sneaky', email: `e2e-sneak-${stamp}@example.test`, phone: '08031234567', password: 'Passw0rd!long', address: { line: '1 Street Road', state: 'lagos', areaId: 'ikeja' } })).status, 400, 'nobody can sign up as an agent');
+  assert.equal((await admin('GET', '/admin/field-agents')).body.agents.some((g) => g.id === agentId), true);
+
+  // the agent sees nothing until assigned
+  assert.equal((await agent('GET', '/agent/jobs')).body.jobs.length, 0);
+  assert.equal((await agent('GET', `/agent/jobs/${ref}`)).status, 404, 'an unassigned job is invisible to agents');
+  assert.equal((await biz('GET', '/agent/jobs')).status, 403);
+
+  // admin queue and assignment
+  assert.ok((await admin('GET', '/admin/audits?status=requested')).body.audits.some((a) => a.ref === ref));
+  assert.equal((await biz('GET', '/admin/audits')).status, 403);
+  assert.equal((await admin('POST', `/admin/audits/${ref}/assign`, { agentId: 99999999 })).status, 400, 'only a real agent');
+  assert.equal((await admin('POST', `/admin/audits/${ref}/assign`, { agentId: (await query("SELECT id FROM users WHERE role = 'admin' LIMIT 1"))[0].id })).status, 400, 'an admin is not an agent');
+  const asg = await admin('POST', `/admin/audits/${ref}/assign`, { agentId });
+  assert.equal(asg.status, 200, JSON.stringify(asg.body));
+  assert.ok(mails.some((m) => m.includes(`A field agent has been assigned · ${ref}`)), 'the business is told');
+  assert.ok(mails.some((m) => m.includes(`New site audit · ${ref}`)), 'the agent is told');
+  const afterAssign = await biz('GET', `/audits/${ref}`);
+  assert.equal(afterAssign.body.audit.agent.name, 'Agent Ade');
+  assert.equal(afterAssign.body.audit.status, 'assigned');
+
+  // the survey cannot be filled before the visit starts
+  const cat = await agent('GET', '/agent/catalog');
+  assert.equal(cat.status, 200);
+  assert.ok(cat.body.appliances.length > 20 && cat.body.photoSlots.length >= 6 && cat.body.discos.length > 3);
+  assert.ok(!JSON.stringify(cat.body).includes('watts'), 'wattage stays on the server');
+  const ap = (id) => { const a = cat.body.appliances.find((x) => x.id === id); assert.ok(a, `catalogue has ${id}`); return { applianceId: a.id, variantId: a.variants[0].id }; };
+  const emptyForm = {};
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: emptyForm })).status, 409, 'start the visit first');
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/start`)).status, 200);
+  assert.ok(mails.some((m) => m.includes(`Your site audit has started · ${ref}`)), 'the business is told it is in progress');
+  assert.equal((await biz('GET', `/audits/${ref}`)).body.audit.status, 'in_progress');
+
+  // the form: draft saves, previews, and submit demands everything
+  const small = {
+    site: { plazaName: 'Ceddi Plaza', section: 'plaza', shopNumber: '14', shopStatus: 'occupied', gps: { lat: 9.06, lng: 7.49 } },
+    business: { shopName: 'Ade Phones', ownerFirstName: 'Ade', ownerLastName: 'Bello', ownerPhone: '08031234567', businessType: 'Phone shop', yearsInPlaza: 4 },
+    power: { disco: 'aedc', supplyBand: 'C', usesGenerator: false },
+    roof: { areaM2: 40, type: 'flat' },
+    appliances: [{ ...ap('w-clipper'), qty: 2, hoursKey: 'h4', critical: true }],
+    comments: 'Friendly owner.',
+  };
+  const saved = await agent('PUT', `/agent/jobs/${ref}/draft`, { form: small });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.ok(saved.body.missing['photo.plaza'], 'it says which photos are still missing');
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: { power: { supplyBand: 'Z' } } })).status, 400);
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: { appliances: [{ applianceId: 'x', variantId: 'y', qty: 0 }] } })).status, 400);
+  const prev = await agent('POST', `/agent/jobs/${ref}/preview`, { form: small });
+  assert.equal(prev.status, 200, JSON.stringify(prev.body));
+  assert.ok(prev.body.result.usage.kwhPerDay > 0 && prev.body.result.audit.scenarios.length >= 2);
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/preview`, { form: { ...small, appliances: [{ applianceId: 'nope', variantId: 'nope', qty: 1 }] } })).status, 400, 'an unknown appliance is refused');
+  const early = await agent('POST', `/agent/jobs/${ref}/submit`, { form: small });
+  assert.equal(early.status, 400);
+  assert.equal(early.body.error.code, 'INCOMPLETE');
+  assert.ok(early.body.error.details.fields['photo.roof']);
+  assert.equal((await biz('GET', `/audits/${ref}`)).body.audit.result, null, 'no result before submit');
+
+  // photos: type is sniffed, slots are fixed, pictures are private
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/photos/nonsense`, null, {}, { type: 'image/png', data: png })).status, 400);
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/photos/roof`, null, {}, { type: 'image/png', data: Buffer.from('not a picture at all, really') })).status, 400, 'fake pictures are refused');
+  const photoIds = {};
+  for (const slot of ['plaza', 'roof', 'equipment_space', 'signature']) {
+    const up = await agent('POST', `/agent/jobs/${ref}/photos/${slot}`, null, {}, { type: 'image/png', data: png });
+    assert.equal(up.status, 201, JSON.stringify(up.body));
+    photoIds[slot] = up.body.imageId;
+  }
+  const raw = await fetch(`${base}/images/${photoIds.roof}`);
+  assert.equal(raw.status, 404, 'site pictures are not on the public picture address');
+  assert.equal((await client()('GET', `/audit-photos/${photoIds.roof}`)).status, 401);
+  assert.equal((await other('GET', `/audit-photos/${photoIds.roof}`)).status, 404, 'another business cannot open them');
+  assert.equal((await person('GET', `/audit-photos/${photoIds.roof}`)).status, 403);
+  assert.equal((await agent('GET', `/audit-photos/${photoIds.roof}`)).status, 200, 'the assigned agent can open it');
+
+  // small site: results go out, but energy as a service is not offered
+  const done = await agent('POST', `/agent/jobs/${ref}/submit`, { form: small });
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.equal(done.body.version, 1);
+  assert.equal(done.body.result.audit.eaasEligible, false);
+  assert.ok(!('eaas' in done.body.result.options), 'no energy as a service below the threshold');
+  for (const who of ['business', 'agent', 'admin']) {
+    const subject = who === 'business' ? `Your energy assessment results · ${ref}` : who === 'agent' ? `Audit submitted · ${ref}` : `Audit completed · ${ref}`;
+    assert.ok(mails.some((m) => m.includes(subject)), `${who} gets the result`);
+  }
+  const mine = await biz('GET', `/audits/${ref}`);
+  assert.equal(mine.body.audit.status, 'completed');
+  assert.equal(mine.body.audit.result.usage.kwhPerDay, done.body.result.usage.kwhPerDay);
+  assert.ok(mine.body.audit.timeline.map((e) => e.type).join() === 'requested,assigned,started,completed');
+  assert.ok(!mine.body.audit.photos.signature, 'the signature is not shown back to the business');
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: small })).status, 409, 'an agent cannot edit a finished audit');
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/submit`, { form: small })).status, 409);
+
+  // the result is an ordinary saved assessment: options work, and energy as a service is refused for it
+  const aid = mine.body.audit.assessmentId;
+  const buyOpts = await biz('GET', `/offers/assessments/${aid}?plan=buy`);
+  assert.equal(buyOpts.status, 200, JSON.stringify(buyOpts.body));
+  const eaasOpts = await biz('GET', `/offers/assessments/${aid}?plan=eaas`);
+  assert.equal(eaasOpts.status, 400, 'small audited site: no energy as a service');
+  assert.equal((await other('GET', `/offers/assessments/${aid}?plan=buy`)).status, 404, 'another business cannot use it');
+
+  // admin flags and reopens; the earlier result stays; the agent corrects; a new version appears
+  assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'x' })).status, 400);
+  assert.equal((await biz('POST', `/admin/audits/${ref}/reopen`, { note: 'Please recheck the clippers' })).status, 403);
+  assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'Please recheck the number of clippers' })).status, 200);
+  assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'Again again again' })).status, 409, 'only a finished audit can be reopened');
+  const under = await biz('GET', `/audits/${ref}`);
+  assert.equal(under.body.audit.underReview, true);
+  assert.ok(under.body.audit.result, 'the earlier numbers stay visible while under review');
+  assert.equal((await agent('GET', `/agent/jobs/${ref}`)).body.job.reviewNote, 'Please recheck the number of clippers');
+  const bigForm = { ...small, appliances: [{ ...ap('w-hair-dryer'), qty: 20, hoursKey: 'h10' }], roof: { areaM2: 30, type: 'flat' }, power: { ...small.power, usesGenerator: true, generatorType: 'petrol', generatorKva: 5, fuelSpendPerWeek: 40000 } };
+  const noGen = await agent('POST', `/agent/jobs/${ref}/submit`, { form: bigForm });
+  assert.equal(noGen.status, 400, 'a generator site needs a generator picture');
+  assert.ok(noGen.body.error.details.fields['photo.generator']);
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/photos/generator`, null, {}, { type: 'image/png', data: png })).status, 201);
+  const v2 = await agent('POST', `/agent/jobs/${ref}/submit`, { form: bigForm });
+  assert.equal(v2.status, 200, JSON.stringify(v2.body));
+  assert.equal(v2.body.version, 2);
+  assert.equal(v2.body.result.audit.eaasEligible, true, 'a large site is offered energy as a service');
+  assert.ok(v2.body.result.options.eaas);
+  assert.equal(v2.body.result.audit.roof.fits, false, 'a small roof is flagged');
+  assert.ok(v2.body.result.audit.fuel.reportedMonthly > 0);
+  assert.equal(mails.filter((m) => m.includes(`Your energy assessment results · ${ref}`)).length, 2, 'the business gets the updated result too');
+  const final = await biz('GET', `/audits/${ref}`);
+  assert.equal(final.body.audit.version, 2);
+  assert.notEqual(final.body.audit.assessmentId, aid, 'the new version has its own saved assessment');
+  assert.equal((await biz('GET', `/offers/assessments/${aid}?plan=buy`)).status, 200, 'the old assessment still works');
+  assert.equal((await biz('GET', `/offers/assessments/${final.body.audit.assessmentId}?plan=eaas`)).status, 200, 'energy as a service is open for the large site');
+  const detail = await admin('GET', `/admin/audits/${ref}`);
+  assert.equal(detail.body.audit.versions.length, 2);
+  assert.ok(detail.body.audit.form.business.shopName === 'Ade Phones' && detail.body.audit.contact.phone);
+  assert.ok(detail.body.audit.timeline.some((e) => e.type === 'reopened' && e.note));
+
+  // vendors see nothing of an audit until the customer picks an option and asks for a quote
+  assert.equal((await vendor('GET', `/audits/${ref}`)).status, 403);
+  assert.equal((await vendor('GET', `/agent/jobs/${ref}`)).status, 403);
+  assert.equal((await vendor('GET', `/admin/audits/${ref}`)).status, 403);
+  step('site audits: business asks, admin assigns an agent, agent surveys and submits, result goes to all, EaaS only for large sites, reopen keeps versions, photos stay private');
+}
+
 // ---------- partners, subscription, change password, admin user detail ----------
 {
   const stampB = Date.now();

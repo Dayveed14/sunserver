@@ -61,6 +61,13 @@ export async function migrate(conn, database = 'solalium') {
     await conn.query("ALTER TABLE users MODIFY COLUMN role ENUM('individual','business','vendor','admin','installer') NOT NULL");
     console.log('Migrated: users.role now accepts installers.');
   }
+  // Phase 9: field agents (created by the admin) run site audits for businesses.
+  if (roleCol[0] && !(await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'users' AND column_name = 'role'", [database]))[0][0].t.includes("'field_agent'")) {
+    await conn.query("ALTER TABLE users MODIFY COLUMN role ENUM('individual','business','vendor','admin','installer','field_agent') NOT NULL");
+    console.log('Migrated: users.role now accepts field agents.');
+  }
+  // Site photos and signatures are private: the public picture address refuses them.
+  await addColumn('images', 'is_private', 'TINYINT(1) NOT NULL DEFAULT 0');
   // 'seller' sells only. 'company' sells, installs and may offer Energy-as-a-Service. Everyone who joined before is a seller until the admin says otherwise.
   await addColumn('vendor_profiles', 'vendor_type', "ENUM('seller','company') NOT NULL DEFAULT 'seller'");
   await addColumn('vendor_profiles', 'documents_submitted_at', 'DATETIME NULL');

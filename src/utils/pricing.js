@@ -76,4 +76,11 @@ export const ASSUMPTIONS = {
     powerFactor: 0.8,
     siteAuditKw: 30, // above this connected load we recommend a proper site survey
   },
+  // Field site audits (a Solariun agent visits a business and measures it).
+  audit: {
+    eaasMinKwhPerDay: 30, // energy as a service is offered only from this daily use (roughly a 10 kWp system)
+    growthPct: 0.2, // the "with room to grow" size adds this much load
+    m2PerKwp: 7, // roof area one kWp of panels needs, including walkways and spacing
+    weeksPerMonth: 4.345,
+  },
 };

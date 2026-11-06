@@ -16,7 +16,7 @@ export const listVendors = asyncHandler(async (req, res) => {
 
 // ---- Users ----
 export const listUsers = asyncHandler(async (req, res) => {
-  const role = ['individual', 'business', 'vendor', 'installer', 'admin'].includes(req.query.role) ? req.query.role : undefined;
+  const role = ['individual', 'business', 'vendor', 'installer', 'field_agent', 'admin'].includes(req.query.role) ? req.query.role : undefined;
   res.json(await svc.listUsers({ role, q: queryText(req.query.q, 80) ?? '' }));
 });
 export const getUser = asyncHandler(async (req, res) => {

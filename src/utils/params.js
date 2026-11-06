@@ -14,6 +14,12 @@ export function orderRef(value) {
   return String(value);
 }
 
+// A site audit reference such as AU-K7M2PQ.
+export function auditRef(value) {
+  if (!/^AU-[A-Z0-9]{6}$/.test(String(value))) throw new HttpError(404, 'NOT_FOUND', 'Not found.');
+  return String(value);
+}
+
 // A short trimmed string from a query parameter, or undefined.
 export function queryText(value, max = 60) {
   return typeof value === 'string' ? value.trim().slice(0, max) : undefined;

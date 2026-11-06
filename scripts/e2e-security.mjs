@@ -101,6 +101,7 @@ const MOUNTS = {
   'vendorOrders.routes.js': { router: '/api/vendor/orders' }, 'vendor.routes.js': { router: '/api/vendor' }, 'vendorSubscription.routes.js': { router: '/api/vendor/subscription' }, 'partners.routes.js': { router: '/api/partners' }, 'adminOrders.routes.js': { router: '/api/admin/orders' },
   'admin.routes.js': { router: '/api/admin' }, 'installer.routes.js': { router: '/api/installer' }, 'installations.routes.js': { router: '/api/installations' }, 'adminInstallations.routes.js': { router: '/api/admin/installations' }, 'blog.routes.js': { router: '/api/blog' }, 'adminBlog.routes.js': { router: '/api/admin/blog' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
   'offers.routes.js': { router: '/api/offers' }, 'shop.routes.js': { router: '/api/shop' }, 'webhook.routes.js': { router: '/api/webhooks' },
+  'audits.routes.js': { businessRouter: '/api/audits', agentRouter: '/api/agent', adminRouter: '/api/admin/audits', adminAgentsRouter: '/api/admin/field-agents', photoRouter: '/api/audit-photos' },
   'images.routes.js': { vendorUploadRouter: '/api/vendor/images', adminUploadRouter: '/api/admin/images', viewRouter: '/api/images' },
 };
 const PUBLIC = new Set([

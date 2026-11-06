@@ -45,6 +45,10 @@ import { createSubscriptionService } from './subscription.service.js';
 import { subscriptionsModel } from '../models/subscriptions.js';
 import { createVerificationService } from './verification.service.js';
 import { createBlogService } from './blog.service.js';
+import { createAuditsService } from './audits.service.js';
+import { auditsModel } from '../models/audits.js';
+import { catalogs } from '../utils/catalog/index.js';
+import { ASSUMPTIONS } from '../utils/pricing.js';
 import { createInstallationsService } from './installations.service.js';
 import { createShopService } from './shop.service.js';
 
@@ -141,6 +145,12 @@ export const verificationService = createVerificationService({ vendorsModel, ins
 export const installationsService = createInstallationsService({
   model: installationsModel, paystack, notifier, usersModel, rules: INSTALL_RULES,
   config: { callbackUrl: `${clientUrl}/installation/return` },
+});
+
+// ASSUMPTIONS is the live object the admin's Pricing page edits, so a changed audit rule applies to the next visit.
+export const auditsService = createAuditsService({
+  model: auditsModel, assessmentsModel, imageService, resetsModel: passwordResetsModel, usersModel, mailer, catalogs, assumptions: ASSUMPTIONS,
+  config: { appUrl: env.clientOrigin, adminEmail: env.notify.adminEmail, bcryptRounds: env.bcryptRounds, resetLink: (token) => `${clientUrl}/reset-password?token=${encodeURIComponent(token)}` },
 });
 
 export const blogService = createBlogService({ articlesModel, imagesModel, auditModel });

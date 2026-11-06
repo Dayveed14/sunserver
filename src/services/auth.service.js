@@ -7,9 +7,9 @@ const PURPOSE = 'verify_email';
 // Compared against when an email doesn't exist, so response time doesn't reveal which emails are registered.
 const DUMMY_HASH = bcrypt.hashSync('solalium-timing-equaliser', 10);
 
-const ROLE_LABEL = { individual: 'individual', business: 'business', vendor: 'vendor', admin: 'admin', installer: 'installer' };
+const ROLE_LABEL = { individual: 'individual', business: 'business', vendor: 'vendor', admin: 'admin', installer: 'installer', field_agent: 'field agent' };
 // If a person has several accounts on one email, log in to the first of these they have.
-const LOGIN_PRIORITY = ['admin', 'individual', 'business', 'vendor', 'installer'];
+const LOGIN_PRIORITY = ['admin', 'individual', 'business', 'vendor', 'installer', 'field_agent'];
 const byPriority = (a, b) => LOGIN_PRIORITY.indexOf(a.role) - LOGIN_PRIORITY.indexOf(b.role);
 
 export function createAuthService({ users, otps, resets, mailer, config, now = () => new Date(), onAccountCreated = async () => {} }) {

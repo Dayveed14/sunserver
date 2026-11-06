@@ -15,7 +15,7 @@ const SELECT_USER = `
   LEFT JOIN installer_profiles i ON i.user_id = u.id
   LEFT JOIN addresses a ON a.user_id = u.id`;
 
-const ROLE_ORDER = { admin: 0, individual: 1, business: 2, vendor: 3, installer: 4 };
+const ROLE_ORDER = { admin: 0, individual: 1, business: 2, vendor: 3, installer: 4, field_agent: 5 };
 const byRole = (a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role];
 
 async function writeAddress(conn, userId, address) {

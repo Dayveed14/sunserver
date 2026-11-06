@@ -242,7 +242,7 @@ export function estimate(input, { catalogs, assumptions: A }) {
   for (const o of Object.values(options)) o.monthlySaving = r0(baseline - o.monthlyCostAfter);
 
   // Energy as a service is left out entirely for customers it is not offered to (config/launch.js).
-  const offered = eaasOffered(input.segment) ? options : Object.fromEntries(Object.entries(options).filter(([k]) => k !== 'eaas'));
+  const offered = eaasOffered(input.segment) && input.eaasAllowed !== false ? options : Object.fromEntries(Object.entries(options).filter(([k]) => k !== 'eaas'));
   const lowestTotalKey = Object.values(offered).reduce((best, o) => (o.total5yr < best.total5yr ? o : best)).key;
   const saves = (k) => options[k].monthlySaving > 0;
 
@@ -251,7 +251,7 @@ export function estimate(input, { catalogs, assumptions: A }) {
   const solarMayNotPayBack = solar.paybackMonthsVsCurrent === null || solar.paybackMonthsVsCurrent > 84;
 
   // Energy as a service is only offered to the kinds of customer set in config/launch.js (businesses for now).
-  const withEaas = eaasOffered(input.segment);
+  const withEaas = eaasOffered(input.segment) && input.eaasAllowed !== false;
   const pick = (order) => order.filter((k) => withEaas || k !== 'eaas').find(saves) ?? null;
   let suggested = null;
   if (solarMayNotPayBack) {

@@ -23,6 +23,10 @@ const DEFS = [
   ['batteryCostPerKwh', 'Lithium battery', 'Solar prices (free assessment)', 'naira', 'A', ['solar', 'batteryCostPerKwh'], 50000, 5000000, '₦ per kWh'],
   ['installPct', 'Installation', 'Solar prices (free assessment)', 'pct', 'A', ['solar', 'installPct'], 0, 0.5, 'of equipment cost'],
   ['annualMaintenancePct', 'Yearly maintenance', 'Solar prices (free assessment)', 'pct', 'A', ['solar', 'annualMaintenancePct'], 0, 0.1, 'of system cost'],
+  // Site audits by field agents
+  ['auditEaasMinKwh', 'Smallest audited business offered energy as a service', 'Site audits (field agents)', 'number', 'A', ['audit', 'eaasMinKwhPerDay'], 1, 2000, 'kWh used per day'],
+  ['auditGrowthPct', 'Room to grow added in the larger size', 'Site audits (field agents)', 'pct', 'A', ['audit', 'growthPct'], 0, 1, 'extra load'],
+  ['auditM2PerKwp', 'Roof space one kWp of panels needs', 'Site audits (field agents)', 'number', 'A', ['audit', 'm2PerKwp'], 4, 15, 'square metres per kWp'],
   // Other ways to pay, as shown in the free assessment
   ['leaseMarkupPct', 'Lease mark-up', 'Lease and rent (free assessment)', 'pct', 'A', ['financing', 'lease', 'markupPct'], 0, 1.5, 'over system cost'],
   ['leaseDepositPct', 'Lease deposit', 'Lease and rent (free assessment)', 'pct', 'A', ['financing', 'lease', 'depositPct'], 0, 0.6, 'of system cost'],

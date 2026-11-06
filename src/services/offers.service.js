@@ -58,6 +58,9 @@ export const publicDeal = (deal) => ({
 
 const CORE = ['panel', 'inverter', 'battery'];
 
+// Energy as a service needs a business account, and (for a field audit) enough daily energy use to be worth a vendor's capital.
+const eaasOfferedFor = (role, input) => eaasOffered(role) && input?.eaasAllowed !== false;
+
 export function createOffersService({ productsModel, dealsModel, requestsModel, assessmentsModel, config }) {
   const visible = vendorVisible(config.requireVerified);
   const verifiedOpt = { requireVerified: config.requireVerified };
@@ -97,13 +100,14 @@ export function createOffersService({ productsModel, dealsModel, requestsModel, 
   return {
     async getOffers(userId, assessmentId, plan, role) {
       if (!PLANS.includes(plan)) throw bad('VALIDATION_ERROR', 'Choose buy, lease, rent or energy as a service.');
-      if (plan === 'eaas' && !eaasOffered(role)) throw bad('NOT_AVAILABLE', 'Energy as a service is offered to business accounts only.');
       const { row, result, requirement, baseline } = await loadAssessment(userId, assessmentId);
+      const eaasOk = eaasOfferedFor(role, row.input_json);
+      if (plan === 'eaas' && !eaasOk) throw bad('NOT_AVAILABLE', eaasOffered(role) ? 'Energy as a service is offered from a larger daily energy use than this site has.' : 'Energy as a service is offered to business accounts only.');
       const deals = (await dealsModel.listActive(verifiedOpt)).filter(visible);
       const budget = Number.isFinite(row.input_json?.budget) && row.input_json.budget > 0 ? row.input_json.budget : null;
 
       const counts = {};
-      for (const p of PLANS) if (p !== 'eaas' || eaasOffered(role)) counts[p] = matchDeals(requirement, deals, p, baseline).length;
+      for (const p of PLANS) if (p !== 'eaas' || eaasOk) counts[p] = matchDeals(requirement, deals, p, baseline).length;
       const matches = matchDeals(requirement, deals, plan, baseline);
 
       const out = {
@@ -145,7 +149,7 @@ export function createOffersService({ productsModel, dealsModel, requestsModel, 
       }
       const otherPlans = [];
       for (const other of PLANS) {
-        if (other === plan || (other === 'eaas' && !eaasOffered(role))) continue;
+        if (other === plan || (other === 'eaas' && !eaasOk)) continue;
         const best = matchDeals(requirement, deals, other, baseline)[0];
         if (best) otherPlans.push({ plan: other, upfront: best.offer.upfront ?? 0, monthly: best.offer.monthly, dealTitle: best.deal.title });
       }
@@ -156,8 +160,8 @@ export function createOffersService({ productsModel, dealsModel, requestsModel, 
     quoteDiy: quoteDiyFor,
 
     async createRequests(userId, assessmentId, body, role) {
-      if (body.plan === 'eaas' && !eaasOffered(role)) throw bad('NOT_AVAILABLE', 'Energy as a service is offered to business accounts only.');
-      const { result, requirement, baseline } = await loadAssessment(userId, assessmentId);
+      const { row, result, requirement, baseline } = await loadAssessment(userId, assessmentId);
+      if (body.plan === 'eaas' && !eaasOfferedFor(role, row.input_json)) throw bad('NOT_AVAILABLE', 'Energy as a service is not offered for this assessment.');
       const needs = {
         segment: result.segment,
         discoName: result.disco.name,

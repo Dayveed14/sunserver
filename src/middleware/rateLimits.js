@@ -19,5 +19,6 @@ export const requestLimiter = limiter(15, 30, 'Too many requests sent. Please tr
 export const checkoutLimiter = limiter(15, 40, 'Too many checkout attempts. Please wait a few minutes and try again.');
 export const payVerifyLimiter = limiter(15, 60, 'Too many payment checks. Please wait a moment.');
 export const orderActionLimiter = limiter(15, 300, 'Too many actions. Please slow down.');
+export const auditUploadLimiter = limiter(15, 150, 'Too many uploads. Please wait a few minutes.');
 export const dispatchLimiter = limiter(15, 60, 'Too many requests from this link. Please try again shortly.');
 export const webhookLimiter = limiter(1, 600, 'Too many webhook calls.');

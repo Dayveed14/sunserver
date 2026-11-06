@@ -7,7 +7,7 @@ export function createImageService({ imagesModel, cloudinary }) {
   return {
     storage: cloudinary.enabled ? 'cloudinary' : 'database',
 
-    async store(ownerId, body) {
+    async store(ownerId, body, { isPrivate = false } = {}) {
       const mime = sniffImage(body);
       if (!mime) throw new HttpError(400, 'INVALID_IMAGE', 'Upload a JPEG, PNG or WebP picture.');
       if (body.length > MAX_IMAGE_BYTES) throw new HttpError(413, 'IMAGE_TOO_LARGE', 'That picture is too large.');
@@ -20,14 +20,14 @@ export function createImageService({ imagesModel, cloudinary }) {
           throw new HttpError(502, 'UPLOAD_FAILED', 'We could not save that picture. Please try again.');
         }
       }
-      const id = await imagesModel.create({ ownerId, mime, size: body.length, data: remote ? null : body, remote });
-      return { id, url: imageUrl(id) };
+      const id = await imagesModel.create({ ownerId, mime, size: body.length, data: remote ? null : body, remote, isPrivate });
+      return { id, url: isPrivate ? null : imageUrl(id) };
     },
 
     // Pictures on Cloudinary come back as a resized CDN address; otherwise the stored bytes.
-    async view(id) {
+    async view(id, { allowPrivate = false } = {}) {
       const img = await imagesModel.get(id);
-      if (!img) throw new HttpError(404, 'NOT_FOUND', 'Not found.');
+      if (!img || (img.isPrivate && !allowPrivate)) throw new HttpError(404, 'NOT_FOUND', 'Not found.');
       if (img.remoteUrl) return { redirectTo: optimisedUrl(img.remoteUrl) };
       return { mime: img.mime, data: img.data };
     },
