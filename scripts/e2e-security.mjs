@@ -102,11 +102,12 @@ const MOUNTS = {
   'admin.routes.js': { router: '/api/admin' }, 'installer.routes.js': { router: '/api/installer' }, 'installations.routes.js': { router: '/api/installations' }, 'adminInstallations.routes.js': { router: '/api/admin/installations' }, 'blog.routes.js': { router: '/api/blog' }, 'adminBlog.routes.js': { router: '/api/admin/blog' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
   'offers.routes.js': { router: '/api/offers' }, 'shop.routes.js': { router: '/api/shop' }, 'webhook.routes.js': { router: '/api/webhooks' },
   'audits.routes.js': { businessRouter: '/api/audits', agentRouter: '/api/agent', adminRouter: '/api/admin/audits', adminAgentsRouter: '/api/admin/field-agents', photoRouter: '/api/audit-photos' },
+  'interest.routes.js': { router: '/api/interest' },
   'images.routes.js': { vendorUploadRouter: '/api/vendor/images', adminUploadRouter: '/api/admin/images', viewRouter: '/api/images' },
 };
 const PUBLIC = new Set([
   'POST /auth/register', 'POST /auth/verify-otp', 'POST /auth/resend-otp', 'POST /auth/login', 'POST /auth/forgot-password', 'POST /auth/reset-password', 'POST /auth/logout', 'GET /auth/areas',
-  'GET /analysis/catalog/:segment', 'POST /analysis/estimate',
+  'GET /analysis/catalog/:segment', 'POST /analysis/estimate', 'POST /interest',
   'GET /dispatch/info', 'POST /dispatch/confirm', // protected by a signed link, tested below
   'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /partners', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/budget-picks', 'GET /shop/products/:id', 'GET /shop/deals/:id',
   'GET /images/:id', 'POST /webhooks/paystack', // the webhook is protected by its signature, tested below

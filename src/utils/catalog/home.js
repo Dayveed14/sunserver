@@ -147,6 +147,12 @@ export const HOME_APPLIANCES = [
     [v('inkjet', 'Inkjet', 30, { default: true }), v('laser', 'Laser', 400)]),
 
   // ---------- Security & other ----------
+  a('oxygen-concentrator', 'Oxygen concentrator', 'Security & other', 'A medical machine that gives oxygen. Pick the flow rate on its label.',
+    { defaultHours: 'h10', daytimeShare: 0.4, maxQty: 3 },
+    [v('5l', '5 litre (about 350W)', 350, { default: true }), v('10l', '10 litre (about 550W)', 550)]),
+  a('cpap', 'Sleep apnoea machine (CPAP)', 'Security & other', 'Used at night. Choose with or without the heated humidifier.',
+    { defaultHours: 'h7', daytimeShare: 0, maxQty: 3 },
+    [v('plain', 'CPAP only (about 40W)', 40, { default: true }), v('heated', 'With heated humidifier (about 90W)', 90)]),
   a('cctv', 'CCTV cameras', 'Security & other', 'Cameras and the recorder (DVR).',
     { hoursMode: 'fixed', daytimeShare: 0.5, maxQty: 4 },
     [v('small', '2–4 cameras with recorder', 40, { default: true }), v('large', '8 or more cameras', 80)]),

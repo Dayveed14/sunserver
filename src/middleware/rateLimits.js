@@ -22,3 +22,4 @@ export const orderActionLimiter = limiter(15, 300, 'Too many actions. Please slo
 export const auditUploadLimiter = limiter(15, 150, 'Too many uploads. Please wait a few minutes.');
 export const dispatchLimiter = limiter(15, 60, 'Too many requests from this link. Please try again shortly.');
 export const webhookLimiter = limiter(1, 600, 'Too many webhook calls.');
+export const interestLimiter = limiter(15, 20, 'Too many sign-ups from this connection. Please try again later.');

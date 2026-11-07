@@ -688,6 +688,57 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   void nPanels;
 }
 
+// ---------- guided assessment: backup time, priorities, three configurations, notify-me ----------
+{
+  const cat = await client()('GET', '/analysis/catalog/home');
+  assert.ok(cat.body.backupOptions.length === 6 && cat.body.priorities.length >= 6, 'the picker carries backup choices and priorities');
+  const pick = (id, qty, hoursKey) => { const ap = cat.body.appliances.find((a) => a.id === id); return { applianceId: id, variantId: (ap.variants.find((v) => v.default) ?? ap.variants[0]).id, qty, ...(hoursKey ? { hoursKey } : {}) }; };
+  const items = [pick('led-bulb', 8, 'h7'), pick('ceiling-fan', 3, 'h10'), pick('fridge', 1), pick('tv', 1, 'h4'), pick('kettle', 1, 'h05'), pick('ac', 1, 'h7')];
+  const guided = { segment: 'home', disco: 'aedc', supplyBand: 'D', items, backupKey: 'b6', priorities: ['food', 'lights_fans'], configKey: 'auto', budget: 3000000 };
+  const r1 = await client()('POST', '/analysis/estimate', guided);
+  assert.equal(r1.status, 200, JSON.stringify(r1.body));
+  const cfg = r1.body.result.configurations;
+  assert.deepEqual(cfg.items.map((c) => c.key).filter((k) => k !== 'budget'), ['essential', 'comfortable', 'whole']);
+  assert.equal(cfg.selected, cfg.recommended);
+  assert.equal(r1.body.result.solar.systemCost, cfg.items.find((c) => c.key === cfg.selected).systemCost);
+  const whole = await client()('POST', '/analysis/estimate', { ...guided, configKey: 'whole' });
+  assert.equal(whole.body.result.configurations.selected, 'whole');
+  assert.ok(whole.body.result.solar.systemCost > r1.body.result.solar.systemCost - 1);
+  assert.equal((await client()('POST', '/analysis/estimate', { ...guided, priorities: ['nope'] })).status, 400);
+  // saving keeps the chosen configuration, and the offers flow works from it
+  const savedG = await buyer('POST', '/analysis/assessments', { ...guided, configKey: 'essential' });
+  assert.equal(savedG.status, 201, JSON.stringify(savedG.body));
+  assert.equal(savedG.body.result.configurations.selected, 'essential');
+  assert.equal((await buyer('GET', `/offers/assessments/${savedG.body.id}?plan=buy`)).status, 200);
+
+  // fitted to a budget: the most of what they asked for, never over the budget, saved and usable for offers
+  const tight = await client()('POST', '/analysis/estimate', { ...guided, priorities: ['food', 'lights_fans', 'ac'], budget: 1200000 });
+  const fit = tight.body.result.configurations.items.find((c) => c.key === 'budget');
+  assert.ok(fit && fit.systemCost <= 1200000 && fit.runs.includes('Refrigerator') && fit.partial.length > 0 && fit.next.extra > 0, JSON.stringify(fit));
+  assert.equal(tight.body.result.configurations.recommended, 'budget');
+  const savedB = await buyer('POST', '/analysis/assessments', { ...guided, priorities: ['food', 'lights_fans', 'ac'], budget: 1200000, configKey: 'budget' });
+  assert.equal(savedB.status, 201, JSON.stringify(savedB.body));
+  assert.equal(savedB.body.result.solar.systemCost, fit.systemCost);
+  assert.equal((await buyer('GET', `/offers/assessments/${savedB.body.id}?plan=buy`)).status, 200);
+  const broke = await client()('POST', '/analysis/estimate', { ...guided, budget: 5000 });
+  assert.equal(broke.body.result.configurations.nothingFits, true);
+  assert.ok(broke.body.result.configurations.fallback.leaseUpfront > 0);
+
+  // notify-me: public, email only, repeats are fine, bad input is refused, only the admin reads the list
+  const mail = `e2e-notify-${stamp}@example.test`;
+  assert.equal((await client()('POST', '/interest', { category: 'cng', email: mail })).status, 201);
+  assert.equal((await client()('POST', '/interest', { category: 'cng', email: mail })).status, 201);
+  assert.equal((await client()('POST', '/interest', { category: 'solar', email: mail })).status, 400);
+  assert.equal((await client()('POST', '/interest', { category: 'cng', email: 'nope' })).status, 400);
+  assert.equal((await client()('GET', '/interest')).status, 401);
+  assert.equal((await buyer('GET', '/interest')).status, 403);
+  const list = await admin('GET', '/interest');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.recent.filter((x) => x.email === mail).length, 1, 'the same email twice is stored once');
+  assert.ok(list.body.counts.cng >= 1);
+  step('guided assessment: three priced configurations, switching, saving, offers; notify-me stores one row per email and only the admin reads it');
+}
+
 // ---------- field site audits: request, assign, survey, result, options, reopen, privacy ----------
 {
   const biz = await signUp('business', 'Plaza Traders', `e2e-biz-${stamp}@example.test`, { state: 'abuja', areaId: 'wuse' });

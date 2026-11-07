@@ -9,6 +9,7 @@ import blogRoutes from './blog.routes.js';
 import partnersRoutes from './partners.routes.js';
 import dispatchRoutes from './dispatch.routes.js';
 import { adminUploadRouter, vendorUploadRouter, viewRouter } from './images.routes.js';
+import interestRoutes from './interest.routes.js';
 import installerRoutes from './installer.routes.js';
 import installationsRoutes from './installations.routes.js';
 import offersRoutes from './offers.routes.js';
@@ -24,6 +25,7 @@ import vendorOrdersRoutes from './vendorOrders.routes.js';
 export function mountRoutes(app) {
   app.use('/api/auth', authRoutes);
   app.use('/api/analysis', analysisRoutes);
+  app.use('/api/interest', interestRoutes);
   app.use('/api/vendor/images', vendorUploadRouter);
   app.use('/api/admin/images', adminUploadRouter);
   app.use('/api/images', viewRouter);

@@ -1,4 +1,5 @@
-import { HOUR_OPTIONS } from './hours.js';
+import { BACKUP_OPTIONS, HOUR_OPTIONS } from './hours.js';
+import { publicPriorities } from '../priorities.js';
 import { BUSINESS_APPLIANCES, BUSINESS_CATEGORIES, BUSINESS_PRESETS } from './business.js';
 import { HOME_APPLIANCES, HOME_CATEGORIES, HOME_PRESETS } from './home.js';
 
@@ -25,6 +26,8 @@ export function buildPublicCatalog(segment) {
     segment,
     categories: catalog.categories,
     hourOptions: HOUR_OPTIONS.map(({ key, label }) => ({ key, label })),
+    backupOptions: BACKUP_OPTIONS.map(({ key, label }) => ({ key, label })),
+    priorities: publicPriorities(catalog),
     supplyOptions: SUPPLY_OPTIONS,
     presets: catalog.presets,
     appliances: catalog.appliances.map((ap) => ({

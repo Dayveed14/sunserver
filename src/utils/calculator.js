@@ -72,6 +72,8 @@ export function estimate(input, { catalogs, assumptions: A }) {
       hoursLabel,
       runningW,
       surgeExtraW: variant.watts * (surge - 1), // extra draw for ONE unit starting up
+      avgW: runningW * duty, // average draw while on
+      rawHours: hours,
       daytimeShare: ap.daytimeShare,
       kwhPerDay: (runningW * hours * duty) / 1000,
     });
@@ -148,7 +150,11 @@ export function estimate(input, { catalogs, assumptions: A }) {
   const rawKwp = pvDailyNeed / (disco.peakSunHours * P.performanceRatio);
   const panels = Math.max(2, Math.ceil((rawKwp * 1000) / P.panelWatts));
   const kwp = (panels * P.panelWatts) / 1000;
-  const batteryKwh = nightKwh > 0.05 ? Math.ceil((nightKwh / P.batteryDepthOfDischarge) * 2) / 2 : 0;
+  // With a backup time (input.backupHours) the battery must also carry every item for that long in a power cut.
+  const backupHours = input.backupHours > 0 ? Math.min(24, input.backupHours) : null;
+  const backupKwh = backupHours ? lines.reduce((s, l) => s + (l.avgW * Math.min(l.rawHours, backupHours)) / 1000, 0) : 0;
+  const batteryBasisKwh = Math.max(nightKwh, backupKwh);
+  const batteryKwh = batteryBasisKwh > 0.05 ? Math.ceil((batteryBasisKwh / P.batteryDepthOfDischarge) * 2) / 2 : 0;
 
   const panelCost = kwp * P.pvCostPerKwp;
   const inverterCost = inverterKva * P.inverterCostPerKva;
@@ -168,6 +174,9 @@ export function estimate(input, { catalogs, assumptions: A }) {
     panelWatts: P.panelWatts,
     kwp: r2(kwp),
     batteryKwh,
+    backupHours,
+    backupKwh: r2(backupKwh),
+    batteryFor: backupKwh > nightKwh ? 'backup' : 'night',
     inverterKva,
     peakSunHours: disco.peakSunHours,
     systemCost,

@@ -47,6 +47,8 @@ import { createVerificationService } from './verification.service.js';
 import { createBlogService } from './blog.service.js';
 import { createAuditsService } from './audits.service.js';
 import { auditsModel } from '../models/audits.js';
+import { interestModel } from '../models/interest.js';
+import { createInterestService } from './interest.service.js';
 import { catalogs } from '../utils/catalog/index.js';
 import { ASSUMPTIONS } from '../utils/pricing.js';
 import { createInstallationsService } from './installations.service.js';
@@ -100,6 +102,7 @@ export const authService = createAuthService({
 });
 
 export const analysisService = createAnalysisService({ assessmentsModel });
+export const interestService = createInterestService({ model: interestModel });
 
 export const imageService = createImageService({ imagesModel, cloudinary });
 
