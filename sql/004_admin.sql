@@ -1,4 +1,4 @@
--- Solariun — Phase 3b schema: password reset links, admin-editable pricing settings, admin audit trail.
+-- TerraVoltix — Phase 3b schema: password reset links, admin-editable pricing settings, admin audit trail.
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS only.
 
 USE solalium;

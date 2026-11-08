@@ -767,7 +767,7 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   const made = await admin('POST', '/admin/field-agents', { fullName: 'Agent Ade', email: agentEmail, phone: '+2348031234567' });
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const agentId = made.body.agent.id;
-  assert.ok(mails.some((m) => m.includes('Your Solariun field agent account')), 'the agent gets a set-password email');
+  assert.ok(mails.some((m) => m.includes('Your TerraVoltix field agent account')), 'the agent gets a set-password email');
   const [resetRow] = await query('SELECT id FROM password_resets WHERE user_id = ? AND used_at IS NULL', [agentId]);
   assert.ok(resetRow, 'a password link exists');
   await query('UPDATE users SET password_hash = ? WHERE id = ?', [await bcrypt.hash('Passw0rd!long', 4), agentId]);

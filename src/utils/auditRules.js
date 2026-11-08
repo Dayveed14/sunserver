@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { HttpError } from '../lib/httpError.js';
 import { estimate } from './calculator.js';
 
-// Field site audits. A Solariun agent visits a business, fills in the survey on a phone and takes photos.
+// Field site audits. A TerraVoltix agent visits a business, fills in the survey on a phone and takes photos.
 // The energy maths is the same business calculator customers already use, so an audited number and a self-serve
 // number are produced the same way. This file adds what only a visit can: roof space, real fuel spend, sizes, and
 // whether the site is big enough for energy as a service.

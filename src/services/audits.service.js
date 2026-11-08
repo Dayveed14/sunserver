@@ -164,15 +164,15 @@ export function createAuditsService({ model, assessmentsModel, imageService, res
       return { agents: agents.map((g) => ({ ...g, openJobs: open.get(g.id) ?? 0 })) };
     },
     async createAgent(adminId, { fullName, email, phone }) {
-      if ((await usersModel.listByEmail(email)).length > 0) throw bad(409, 'EMAIL_TAKEN', 'This email already has a Solariun account. Use a different email for the agent.');
+      if ((await usersModel.listByEmail(email)).length > 0) throw bad(409, 'EMAIL_TAKEN', 'This email already has a TerraVoltix account. Use a different email for the agent.');
       const hash = await bcrypt.hash(crypto.randomBytes(24).toString('base64url'), config.bcryptRounds);
       const id = await usersModel.create({ email, passwordHash: hash, role: 'field_agent', fullName, phone: phone ?? null, verifiedAt: now() });
       // The agent sets their own password from a link, valid for three days.
       const token = crypto.randomBytes(32).toString('base64url');
       await resetsModel.create({ userId: id, tokenHash: sha256(token), expiresAt: new Date(now().getTime() + 72 * HOUR), createdAt: now() });
       await send(email, {
-        subject: 'Your Solariun field agent account', heading: `Welcome, ${fullName.split(' ')[0]}`,
-        lines: ['You have been added as a Solariun field agent. Choose a password to sign in. The link works for three days.', 'When you are assigned a site, you will get an email and the job will appear in your account.'],
+        subject: 'Your TerraVoltix field agent account', heading: `Welcome, ${fullName.split(' ')[0]}`,
+        lines: ['You have been added as a TerraVoltix field agent. Choose a password to sign in. The link works for three days.', 'When you are assigned a site, you will get an email and the job will appear in your account.'],
         button: { label: 'Choose your password', url: config.resetLink(token) },
       });
       return { agent: { id, fullName, email, phone: phone ?? null, active: true, openJobs: 0 } };

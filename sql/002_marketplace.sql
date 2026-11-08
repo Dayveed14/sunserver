@@ -1,4 +1,4 @@
--- Solariun — Phase 2 schema: vendor products, combos/deals, and customer requests.
+-- TerraVoltix — Phase 2 schema: vendor products, combos/deals, and customer requests.
 -- Safe to run on an existing database: every statement is CREATE TABLE IF NOT EXISTS.
 -- Run with:  npm run db:init
 
