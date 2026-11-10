@@ -14,6 +14,8 @@ export const requestAuditSchema = z.object({
 });
 
 export const formBodySchema = z.object({ form: auditDraftSchema });
+export const technicalReviewSchema = z.object({ note: z.string().trim().min(5, 'Say what the engineer should check').max(500) });
+export const approveSchema = z.object({ note: z.string().trim().max(500).optional() });
 export const reopenSchema = z.object({ note: z.string().trim().min(5, 'Say what needs rechecking').max(500) });
 export const assignSchema = z.object({ agentId: z.number().int().positive('Choose an agent') });
 export const createAgentSchema = z.object({

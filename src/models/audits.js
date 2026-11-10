@@ -13,6 +13,8 @@ const toAudit = (r) => ({
   version: Number(r.version), form: parseJson(r.form_json), result: parseJson(r.result_json),
   assessmentId: r.assessment_id == null ? null : Number(r.assessment_id),
   kwhPerDay: r.kwh_per_day == null ? null : Number(r.kwh_per_day), eaasEligible: r.eaas_eligible == null ? null : Boolean(r.eaas_eligible),
+  submittedAt: r.submitted_at ?? null, approvedAt: r.approved_at ?? null, approvedVersion: Number(r.approved_version ?? 0),
+  needsTechnical: Boolean(r.needs_technical), technicalNote: r.technical_note ?? null,
   reviewNote: r.review_note ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -42,15 +44,16 @@ export const auditsModel = {
   async listForAgent(agentId) {
     const rows = await query(
       `SELECT a.*, b.full_name AS business_name FROM site_audits a JOIN users b ON b.id = a.business_id
-       WHERE a.agent_id = ? ORDER BY FIELD(a.status, 'reopened', 'in_progress', 'assigned', 'completed'), a.id DESC LIMIT 200`, [agentId]
+       WHERE a.agent_id = ? ORDER BY FIELD(a.status, 'reopened', 'in_progress', 'assigned', 'submitted', 'technical_review', 'completed'), a.id DESC LIMIT 200`, [agentId]
     );
     return rows.map((r) => ({ ...toAudit(r), businessName: r.business_name }));
   },
   async listForAdmin({ status, ref } = {}) {
+    const statuses = status ? [].concat(status) : [];
     const rows = await query(
       `SELECT a.*, b.full_name AS business_name, COALESCE(bp.company_name, b.full_name) AS company_name, b.email AS business_email, g.full_name AS agent_name
        FROM site_audits a JOIN users b ON b.id = a.business_id LEFT JOIN business_profiles bp ON bp.user_id = b.id LEFT JOIN users g ON g.id = a.agent_id
-       ${ref ? 'WHERE a.public_ref = ?' : status ? 'WHERE a.status = ?' : ''} ORDER BY a.id DESC LIMIT 300`, ref ? [ref] : status ? [status] : []
+       ${ref ? 'WHERE a.public_ref = ?' : statuses.length ? `WHERE a.status IN (${statuses.map(() => '?').join(',')})` : ''} ORDER BY a.id DESC LIMIT 300`, ref ? [ref] : statuses
     );
     return rows.map((r) => ({ ...toAudit(r), businessName: r.business_name, companyName: r.company_name, businessEmail: r.business_email, agentName: r.agent_name }));
   },
@@ -114,37 +117,73 @@ export const auditsModel = {
     return rows[0] ? { id: Number(rows[0].id), businessId: Number(rows[0].business_id), agentId: rows[0].agent_id == null ? null : Number(rows[0].agent_id) } : null;
   },
 
-  // Saves a finished version. The row is locked so two submits give two versions, never one overwriting the other.
-  async submit(auditId, agentId, { form, result, assessmentId, kwhPerDay, eaasEligible }) {
+  // The agent sends a finished version for the admin to review. The row is locked so two submits give two versions, never one
+  // overwriting the other. What the customer was shown before (result, assessment) is left alone until the admin approves.
+  async submit(auditId, agentId, { form, result, needsTechnical }) {
     return withTransaction(async (conn) => {
       const [rows] = await conn.execute('SELECT status, agent_id, version FROM site_audits WHERE id = ? FOR UPDATE', [auditId]);
       const r = rows[0];
       if (!r || Number(r.agent_id) !== agentId || !['in_progress', 'reopened'].includes(r.status)) return { ok: false, status: r?.status ?? null };
       const version = Number(r.version) + 1;
-      await conn.execute('INSERT INTO audit_versions (audit_id, version, form_json, result_json, assessment_id) VALUES (?, ?, ?, ?, ?)',
-        [auditId, version, JSON.stringify(form), JSON.stringify(result), assessmentId]);
+      await conn.execute('INSERT INTO audit_versions (audit_id, version, form_json, result_json) VALUES (?, ?, ?, ?)', [auditId, version, JSON.stringify(form), JSON.stringify(result)]);
       await conn.execute(
-        `UPDATE site_audits SET status = 'completed', version = ?, form_json = ?, result_json = ?, assessment_id = ?, kwh_per_day = ?, eaas_eligible = ?,
-         completed_at = UTC_TIMESTAMP(), review_note = NULL WHERE id = ?`,
-        [version, JSON.stringify(form), JSON.stringify(result), assessmentId, kwhPerDay, eaasEligible ? 1 : 0, auditId]
+        "UPDATE site_audits SET status = 'submitted', version = ?, form_json = ?, submitted_at = UTC_TIMESTAMP(), needs_technical = ?, technical_note = NULL, review_note = NULL WHERE id = ?",
+        [version, JSON.stringify(form), needsTechnical ? 1 : 0, auditId]
       );
-      await event(conn, auditId, version > 1 ? 'updated' : 'completed', 'agent');
+      await event(conn, auditId, 'submitted', 'agent');
       return { ok: true, version };
     });
   },
-  // The admin flags a finished audit and sends it back to its agent. The old result stays on file.
+  // The submitted version nobody has approved yet (what the admin is reviewing).
+  async pendingVersion(auditId) {
+    const rows = await query('SELECT version, form_json, result_json FROM audit_versions WHERE audit_id = ? AND approved_at IS NULL ORDER BY version DESC LIMIT 1', [auditId]);
+    return rows[0] ? { version: Number(rows[0].version), form: parseJson(rows[0].form_json), result: parseJson(rows[0].result_json) } : null;
+  },
+  // The admin says an engineer should look at it. Only a submitted audit can go.
+  async technicalReview(auditId, note) {
+    return withTransaction(async (conn) => {
+      const [rows] = await conn.execute('SELECT status FROM site_audits WHERE id = ? FOR UPDATE', [auditId]);
+      if (rows[0]?.status !== 'submitted') return { ok: false, status: rows[0]?.status ?? null };
+      await conn.execute("UPDATE site_audits SET status = 'technical_review', technical_note = ? WHERE id = ?", [note, auditId]);
+      await event(conn, auditId, 'technical_review', 'admin', note);
+      return { ok: true };
+    });
+  },
+  // The admin approves the pending version: the customer's result, assessment and numbers are set in one step. `release` runs
+  // inside the lock and returns { assessmentId, kwhPerDay, eaasEligible }; a second approver waits, then finds nothing to approve.
+  async approve(auditId, note, release) {
+    return withTransaction(async (conn) => {
+      const [rows] = await conn.execute('SELECT status, needs_technical FROM site_audits WHERE id = ? FOR UPDATE', [auditId]);
+      const status = rows[0]?.status;
+      if (!['submitted', 'technical_review'].includes(status)) return { ok: false, status: status ?? null };
+      if (Number(rows[0].needs_technical) === 1 && status !== 'technical_review') return { ok: false, status, needsTechnical: true };
+      const [pv] = await conn.execute('SELECT version, result_json FROM audit_versions WHERE audit_id = ? AND approved_at IS NULL ORDER BY version DESC LIMIT 1', [auditId]);
+      if (!pv[0]) return { ok: false, status };
+      const result = parseJson(pv[0].result_json);
+      const out = await release({ version: Number(pv[0].version), result });
+      await conn.execute('UPDATE audit_versions SET assessment_id = ?, approved_at = UTC_TIMESTAMP() WHERE audit_id = ? AND version = ?', [out.assessmentId, auditId, pv[0].version]);
+      await conn.execute(
+        `UPDATE site_audits SET status = 'completed', result_json = ?, assessment_id = ?, kwh_per_day = ?, eaas_eligible = ?, completed_at = UTC_TIMESTAMP(),
+         approved_at = UTC_TIMESTAMP(), approved_version = ?, review_note = NULL WHERE id = ?`,
+        [JSON.stringify(result), out.assessmentId, out.kwhPerDay, out.eaasEligible ? 1 : 0, pv[0].version, auditId]
+      );
+      await event(conn, auditId, Number(pv[0].version) > 1 ? 'approved_update' : 'approved', 'admin', note ?? null);
+      return { ok: true, version: Number(pv[0].version), result };
+    });
+  },
+  // The admin sends an audit back to its agent: a released result, or one still waiting for review. Old results stay on file.
   async reopen(auditId, note) {
     return withTransaction(async (conn) => {
       const [rows] = await conn.execute('SELECT status FROM site_audits WHERE id = ? FOR UPDATE', [auditId]);
-      if (rows[0]?.status !== 'completed') return { ok: false, status: rows[0]?.status ?? null };
+      if (!['completed', 'submitted', 'technical_review'].includes(rows[0]?.status)) return { ok: false, status: rows[0]?.status ?? null };
       await conn.execute("UPDATE site_audits SET status = 'reopened', review_note = ? WHERE id = ?", [note, auditId]);
       await event(conn, auditId, 'reopened', 'admin', note);
       return { ok: true };
     });
   },
   async versions(auditId) {
-    const rows = await query('SELECT version, assessment_id, created_at FROM audit_versions WHERE audit_id = ? ORDER BY version', [auditId]);
-    return rows.map((v) => ({ version: Number(v.version), assessmentId: v.assessment_id == null ? null : Number(v.assessment_id), at: v.created_at }));
+    const rows = await query('SELECT version, assessment_id, approved_at, created_at FROM audit_versions WHERE audit_id = ? ORDER BY version', [auditId]);
+    return rows.map((v) => ({ version: Number(v.version), assessmentId: v.assessment_id == null ? null : Number(v.assessment_id), approved: v.approved_at != null, at: v.created_at }));
   },
   async countOpenForAgents() {
     const rows = await query("SELECT agent_id, COUNT(*) AS n FROM site_audits WHERE status IN ('assigned','in_progress','reopened') AND agent_id IS NOT NULL GROUP BY agent_id");

@@ -4,7 +4,7 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { auditUploadLimiter, orderActionLimiter, requestLimiter } from '../middleware/rateLimits.js';
 import { validate } from '../middleware/validate.js';
 import { MAX_IMAGE_BYTES } from '../utils/images.js';
-import { assignSchema, createAgentSchema, formBodySchema, reopenSchema, requestAuditSchema } from '../validators/audits.schemas.js';
+import { approveSchema, assignSchema, createAgentSchema, formBodySchema, reopenSchema, requestAuditSchema, technicalReviewSchema } from '../validators/audits.schemas.js';
 
 const rawImage = express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_IMAGE_BYTES });
 
@@ -34,6 +34,8 @@ adminRouter.get('/', c.adminList);
 adminRouter.get('/:ref', c.adminGet);
 adminRouter.post('/:ref/assign', validate(assignSchema), c.assign);
 adminRouter.post('/:ref/reopen', validate(reopenSchema), c.reopen);
+adminRouter.post('/:ref/technical-review', validate(technicalReviewSchema), c.technicalReview);
+adminRouter.post('/:ref/approve', validate(approveSchema), c.approve);
 
 // Mounted at /api/admin/field-agents.
 export const adminAgentsRouter = Router();

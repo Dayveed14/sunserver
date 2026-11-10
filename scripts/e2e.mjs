@@ -1047,16 +1047,18 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
 
   // the form: draft saves, previews, and submit demands everything
   const small = {
-    site: { plazaName: 'Ceddi Plaza', section: 'plaza', shopNumber: '14', shopStatus: 'occupied', gps: { lat: 9.06, lng: 7.49 } },
-    business: { shopName: 'Ade Phones', ownerFirstName: 'Ade', ownerLastName: 'Bello', ownerPhone: '08031234567', businessType: 'Phone shop', yearsInPlaza: 4 },
-    power: { disco: 'aedc', supplyBand: 'C', usesGenerator: false },
+    site: { siteName: 'Ade Phones, Ceddi Plaza', siteType: 'shop', unit: 'Shop 14', occupancy: 'occupied', gps: { lat: 9.06, lng: 7.49, accuracyM: 12, capturedAt: '2026-11-10T10:00:00.000Z' } },
+    client: { organisation: 'Ade Phones', firstName: 'Ade', lastName: 'Bello', phone: '08031234567', role: 'owner', businessType: 'Phone shop', yearsAtSite: 4 },
+    power: { disco: 'aedc', supplyBand: 'C', noOtherSources: true },
     roof: { areaM2: 40, type: 'flat' },
     appliances: [{ ...ap('w-clipper'), qty: 2, hoursKey: 'h4', critical: true }],
     comments: 'Friendly owner.',
   };
   const saved = await agent('PUT', `/agent/jobs/${ref}/draft`, { form: small });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  assert.ok(saved.body.missing['photo.plaza'], 'it says which photos are still missing');
+  assert.ok(saved.body.missing['photo.building'] && saved.body.missing['photo.checkin'], 'it says which photos are still missing');
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: { ...small, site: { ...small.site, gps: { lat: 9.06, lng: 7.49, accuracyM: 400 } } } })).body.missing['site.gps'].includes('too rough'), true, 'a rough GPS fix is refused at submit');
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: { v: 1 } })).status, 400, 'only the current form shape is accepted');
   assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: { power: { supplyBand: 'Z' } } })).status, 400);
   assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: { appliances: [{ applianceId: 'x', variantId: 'y', qty: 0 }] } })).status, 400);
   const prev = await agent('POST', `/agent/jobs/${ref}/preview`, { form: small });
@@ -1074,7 +1076,8 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal((await agent('POST', `/agent/jobs/${ref}/photos/nonsense`, null, {}, { type: 'image/png', data: png })).status, 400);
   assert.equal((await agent('POST', `/agent/jobs/${ref}/photos/roof`, null, {}, { type: 'image/png', data: Buffer.from('not a picture at all, really') })).status, 400, 'fake pictures are refused');
   const photoIds = {};
-  for (const slot of ['plaza', 'roof', 'equipment_space', 'signature']) {
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/photos/plaza`, null, {}, { type: 'image/png', data: png })).status, 400, 'the old plaza slot is gone');
+  for (const slot of ['checkin', 'building', 'roof', 'equipment_space', 'signature', 'agent_signature']) {
     const up = await agent('POST', `/agent/jobs/${ref}/photos/${slot}`, null, {}, { type: 'image/png', data: png });
     assert.equal(up.status, 201, JSON.stringify(up.body));
     photoIds[slot] = up.body.imageId;
@@ -1086,23 +1089,49 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal((await person('GET', `/audit-photos/${photoIds.roof}`)).status, 403);
   assert.equal((await agent('GET', `/audit-photos/${photoIds.roof}`)).status, 200, 'the assigned agent can open it');
 
-  // small site: results go out, but energy as a service is not offered
+  // submit: the result goes to the admin for review, not to the business
   const done = await agent('POST', `/agent/jobs/${ref}/submit`, { form: small });
   assert.equal(done.status, 200, JSON.stringify(done.body));
   assert.equal(done.body.version, 1);
+  assert.equal(done.body.status, 'submitted');
   assert.equal(done.body.result.audit.eaasEligible, false);
   assert.ok(!('eaas' in done.body.result.options), 'no energy as a service below the threshold');
-  for (const who of ['business', 'agent', 'admin']) {
-    const subject = who === 'business' ? `Your energy assessment results · ${ref}` : who === 'agent' ? `Audit submitted · ${ref}` : `Audit completed · ${ref}`;
-    assert.ok(mails.some((m) => m.includes(subject)), `${who} gets the result`);
-  }
+  assert.ok(mails.some((m) => m.includes(`Audit submitted · ${ref}`)) && mails.some((m) => m.includes(`Audit to review · ${ref}`)), 'the agent and the admin are told');
+  assert.ok(mails.some((m) => m.includes(`The site visit is finished · ${ref}`)));
+  assert.equal(mails.filter((m) => m.includes(`Your energy assessment results · ${ref}`)).length, 0, 'the business gets no result before the admin approves');
+  const waiting = await biz('GET', `/audits/${ref}`);
+  assert.equal(waiting.body.audit.status, 'submitted');
+  assert.equal(waiting.body.audit.result, null, 'the business sees no numbers while the audit is being reviewed');
+  assert.equal(waiting.body.audit.assessmentId, null);
+  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: small })).status, 409, 'an agent cannot edit a submitted audit');
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/submit`, { form: small })).status, 409);
+  step('submitting sends the audit to the admin for review; the business sees no result yet');
+
+  // the admin reviews: a queue, the pending result, the GPS check; only the admin approves
+  assert.ok((await admin('GET', '/admin/audits?status=needs_action')).body.audits.some((a) => a.ref === ref && a.status === 'submitted'));
+  const review = (await admin('GET', `/admin/audits/${ref}`)).body.audit;
+  assert.equal(review.pending.version, 1);
+  assert.equal(review.pending.result.usage.kwhPerDay, done.body.result.usage.kwhPerDay);
+  assert.equal(review.form.site.siteName, 'Ade Phones, Ceddi Plaza');
+  assert.equal(review.gpsCheck.accuracyM, 12);
+  assert.equal(review.gpsCheck.far, false, 'a point in Wuse is close to the Wuse address');
+  assert.ok(review.photos.checkin && review.photos.agent_signature, 'the admin sees the check-in and both signatures');
+  assert.equal((await biz('POST', `/admin/audits/${ref}/approve`, {})).status, 403);
+  assert.equal((await agent('POST', `/admin/audits/${ref}/approve`, {})).status, 403);
+  assert.equal((await vendor('POST', `/admin/audits/${ref}/technical-review`, { note: 'Please check this' })).status, 403);
+  assert.equal((await admin('POST', `/admin/audits/AU-NOSUCH/approve`, {})).status, 404);
+  const [ap1, ap2, ap3] = await Promise.all([1, 2, 3].map(() => admin('POST', `/admin/audits/${ref}/approve`, { note: 'Figures look right' })));
+  assert.deepEqual([ap1.status, ap2.status, ap3.status].sort(), [200, 409, 409], 'three approvals at once: one wins');
+  assert.equal(mails.filter((m) => m.includes(`Your energy assessment results · ${ref}`)).length, 1, 'the business is emailed once');
+  assert.equal((await admin('POST', `/admin/audits/${ref}/approve`, {})).status, 409);
   const mine = await biz('GET', `/audits/${ref}`);
   assert.equal(mine.body.audit.status, 'completed');
   assert.equal(mine.body.audit.result.usage.kwhPerDay, done.body.result.usage.kwhPerDay);
-  assert.ok(mine.body.audit.timeline.map((e) => e.type).join() === 'requested,assigned,started,completed');
-  assert.ok(!mine.body.audit.photos.signature, 'the signature is not shown back to the business');
-  assert.equal((await agent('PUT', `/agent/jobs/${ref}/draft`, { form: small })).status, 409, 'an agent cannot edit a finished audit');
-  assert.equal((await agent('POST', `/agent/jobs/${ref}/submit`, { form: small })).status, 409);
+  assert.ok(mine.body.audit.timeline.map((e) => e.type).join() === 'requested,assigned,started,submitted,approved');
+  assert.ok(!mine.body.audit.photos.signature && !mine.body.audit.photos.agent_signature && !mine.body.audit.photos.checkin, 'signatures and the check-in are not shown to the business');
+  assert.ok(mine.body.audit.photos.roof && mine.body.audit.photos.building);
+  assert.ok(mails.some((m) => m.includes(`Audit approved · ${ref}`)), 'the agent is told');
+  step('the admin approves once: the business gets its result and email, and sees the site pictures but not signatures or the check-in');
 
   // the result is an ordinary saved assessment: options work, and energy as a service is refused for it
   const aid = mine.body.audit.assessmentId;
@@ -1112,16 +1141,21 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal(eaasOpts.status, 400, 'small audited site: no energy as a service');
   assert.equal((await other('GET', `/offers/assessments/${aid}?plan=buy`)).status, 404, 'another business cannot use it');
 
-  // admin flags and reopens; the earlier result stays; the agent corrects; a new version appears
+  // the admin sends it back; the earlier result stays; the agent corrects and flags a technical review
   assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'x' })).status, 400);
   assert.equal((await biz('POST', `/admin/audits/${ref}/reopen`, { note: 'Please recheck the clippers' })).status, 403);
   assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'Please recheck the number of clippers' })).status, 200);
-  assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'Again again again' })).status, 409, 'only a finished audit can be reopened');
+  assert.equal((await admin('POST', `/admin/audits/${ref}/reopen`, { note: 'Again again again' })).status, 409, 'a reopened audit cannot be reopened again');
   const under = await biz('GET', `/audits/${ref}`);
   assert.equal(under.body.audit.underReview, true);
   assert.ok(under.body.audit.result, 'the earlier numbers stay visible while under review');
   assert.equal((await agent('GET', `/agent/jobs/${ref}`)).body.job.reviewNote, 'Please recheck the number of clippers');
-  const bigForm = { ...small, appliances: [{ ...ap('w-hair-dryer'), qty: 20, hoursKey: 'h10' }], roof: { areaM2: 30, type: 'flat' }, power: { ...small.power, usesGenerator: true, generatorType: 'petrol', generatorKva: 5, fuelSpendPerWeek: 40000 } };
+  const bigForm = {
+    ...small, appliances: [{ ...ap('w-hair-dryer'), qty: 20, hoursKey: 'h10' }], roof: { areaM2: 30, type: 'flat' },
+    power: { disco: 'aedc', supplyBand: 'C', sources: [{ kind: 'generator', fuel: 'petrol', kva: 5, fuelSpendPerWeek: 40000 }, { kind: 'solar', kwp: 2, note: 'Old panels, not working' }] },
+    review: { needsTechnical: true, reason: 'The roof slab is cracked and the supply looks three-phase' },
+  };
+  assert.equal((await agent('POST', `/agent/jobs/${ref}/submit`, { form: { ...bigForm, review: { needsTechnical: true, reason: 'short' } } })).status, 400, 'a technical flag needs a reason');
   const noGen = await agent('POST', `/agent/jobs/${ref}/submit`, { form: bigForm });
   assert.equal(noGen.status, 400, 'a generator site needs a generator picture');
   assert.ok(noGen.body.error.details.fields['photo.generator']);
@@ -1133,22 +1167,72 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.ok(v2.body.result.options.eaas);
   assert.equal(v2.body.result.audit.roof.fits, false, 'a small roof is flagged');
   assert.ok(v2.body.result.audit.fuel.reportedMonthly > 0);
+  assert.equal(v2.body.result.audit.existing.solarKwp, 2);
+  assert.ok(mails.some((m) => m.includes(`TECHNICAL REVIEW FLAGGED · ${ref}`)), 'the admin is told it was flagged');
+  const stillOld = await biz('GET', `/audits/${ref}`);
+  assert.equal(stillOld.body.audit.assessmentId, aid, 'until approval the business keeps the earlier assessment');
+  assert.equal(stillOld.body.audit.result.usage.kwhPerDay, done.body.result.usage.kwhPerDay);
+  assert.equal(stillOld.body.audit.underReview, true);
+
+  // technical review: flagged audits cannot be approved until someone has checked, and the finding is written down
+  assert.equal((await admin('POST', `/admin/audits/${ref}/approve`, { note: 'Looks fine to me' })).status, 409, 'a flagged audit must go to a technical check first');
+  assert.equal((await admin('POST', `/admin/audits/${ref}/technical-review`, { note: 'x' })).status, 400);
+  assert.equal((await admin('POST', `/admin/audits/${ref}/technical-review`, { note: 'Engineer to look at the roof slab and the supply' })).status, 200);
+  assert.equal((await admin('POST', `/admin/audits/${ref}/technical-review`, { note: 'Engineer to look at the roof again' })).status, 409, 'only a submitted audit can be sent');
+  assert.equal((await biz('GET', `/audits/${ref}`)).body.audit.status, 'submitted', 'the business just sees "being checked"');
+  const bizText = JSON.stringify((await biz('GET', `/audits/${ref}`)).body);
+  assert.ok(!bizText.includes('slab') && !bizText.includes('technical'), 'the business never sees the technical check');
+  assert.equal((await admin('POST', `/admin/audits/${ref}/approve`, {})).status, 400, 'the technical finding must be written');
+  assert.equal((await admin('POST', `/admin/audits/${ref}/approve`, { note: 'Engineer confirmed the slab can take 2 kWp; supply is single-phase' })).status, 200);
   assert.equal(mails.filter((m) => m.includes(`Your energy assessment results · ${ref}`)).length, 2, 'the business gets the updated result too');
   const final = await biz('GET', `/audits/${ref}`);
   assert.equal(final.body.audit.version, 2);
+  assert.equal(final.body.audit.status, 'completed');
   assert.notEqual(final.body.audit.assessmentId, aid, 'the new version has its own saved assessment');
   assert.equal((await biz('GET', `/offers/assessments/${aid}?plan=buy`)).status, 200, 'the old assessment still works');
   assert.equal((await biz('GET', `/offers/assessments/${final.body.audit.assessmentId}?plan=eaas`)).status, 200, 'energy as a service is open for the large site');
   const detail = await admin('GET', `/admin/audits/${ref}`);
   assert.equal(detail.body.audit.versions.length, 2);
-  assert.ok(detail.body.audit.form.business.shopName === 'Ade Phones' && detail.body.audit.contact.phone);
-  assert.ok(detail.body.audit.timeline.some((e) => e.type === 'reopened' && e.note));
+  assert.ok(detail.body.audit.versions.every((v) => v.approved));
+  assert.ok(detail.body.audit.form.client.firstName === 'Ade' && detail.body.audit.contact.phone);
+  assert.ok(detail.body.audit.timeline.some((e) => e.type === 'reopened' && e.note) && detail.body.audit.timeline.some((e) => e.type === 'technical_review' && e.note));
+  assert.equal(detail.body.audit.needsTechnical, true);
+
+  // an audit made with the old plaza form stays readable, and opens in the new form if it is reopened
+  const legacyRef = 'AU-LEGACY';
+  const legacyForm = {
+    site: { plazaName: 'Old Plaza', section: 'kiosk', shopNumber: '7', shopStatus: 'occupied', gps: { lat: 9.06, lng: 7.49, accuracyM: 20 } },
+    business: { shopName: 'Old Shop', ownerFirstName: 'Olu', ownerLastName: 'Ade', ownerPhone: '08031234567', businessType: 'Provision store', yearsInPlaza: 9 },
+    power: { disco: 'aedc', supplyBand: 'C', usesGenerator: true, generatorType: 'petrol', generatorKva: 3, fuelSpendPerWeek: 15000 },
+    roof: { areaM2: 25, type: 'flat' }, appliances: [{ ...ap('w-clipper'), qty: 2 }], comments: 'Old visit.',
+  };
+  await query(
+    `INSERT INTO site_audits (public_ref, business_id, status, contact_name, contact_phone, state, area_id, address_line, agent_id, version, form_json, result_json, assessment_id, kwh_per_day, eaas_eligible, approved_version, completed_at)
+     SELECT ?, business_id, 'completed', contact_name, contact_phone, state, area_id, address_line, agent_id, 1, ?, result_json, assessment_id, kwh_per_day, 0, 1, UTC_TIMESTAMP() FROM site_audits WHERE public_ref = ?`,
+    [legacyRef, JSON.stringify(legacyForm), ref]
+  );
+  const oldMine = await biz('GET', `/audits/${legacyRef}`);
+  assert.equal(oldMine.status, 200);
+  assert.equal(oldMine.body.audit.status, 'completed');
+  assert.ok(oldMine.body.audit.result.usage.kwhPerDay > 0, 'an old audit still shows its result');
+  const oldAdmin = (await admin('GET', `/admin/audits/${legacyRef}`)).body.audit;
+  assert.equal(oldAdmin.form.site.siteName, 'Old Plaza');
+  assert.equal(oldAdmin.formUpgraded, true);
+  assert.equal(oldAdmin.form.power.sources[0].kind, 'generator');
+  assert.equal((await admin('POST', `/admin/audits/${legacyRef}/reopen`, { note: 'Please add the check-in photo and signatures' })).status, 200);
+  const oldJob = (await agent('GET', `/agent/jobs/${legacyRef}`)).body.job;
+  assert.equal(oldJob.upgraded, true);
+  assert.equal(oldJob.form.client.firstName, 'Olu');
+  assert.ok(oldJob.missing['photo.checkin'] && oldJob.missing['photo.agent_signature'], 'a recheck needs the new photos');
+  assert.equal((await agent('PUT', `/agent/jobs/${legacyRef}/draft`, { form: { ...oldJob.form, comments: 'Rechecked.' } })).status, 200);
+  assert.equal((await agent('GET', `/agent/jobs/${legacyRef}`)).body.job.form.comments, 'Rechecked.');
+  step('the old plaza audit stays readable (customer, admin) and opens in the new form when reopened');
 
   // vendors see nothing of an audit until the customer picks an option and asks for a quote
   assert.equal((await vendor('GET', `/audits/${ref}`)).status, 403);
   assert.equal((await vendor('GET', `/agent/jobs/${ref}`)).status, 403);
   assert.equal((await vendor('GET', `/admin/audits/${ref}`)).status, 403);
-  step('site audits: business asks, admin assigns an agent, agent surveys and submits, result goes to all, EaaS only for large sites, reopen keeps versions, photos stay private');
+  step('site audits: business asks, admin assigns an agent, agent surveys and submits, admin reviews and approves, technical review gate, EaaS only for large sites, reopen keeps versions, old audits readable, photos stay private');
 }
 
 // ---------- partners, subscription, change password, admin user detail ----------

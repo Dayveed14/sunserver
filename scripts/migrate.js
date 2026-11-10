@@ -156,4 +156,23 @@ export async function migrate(conn, database = 'solalium') {
     await conn.query('UPDATE install_requests SET payout_amount = installer_payout');
     await conn.query('UPDATE install_requests SET refund_amount = price WHERE refund_needed = 1');
   }
+  // Phase 6 (general site audits): the admin reviews a submitted audit before the customer sees it.
+  const [auditStatus] = await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'site_audits' AND column_name = 'status'", [database]);
+  if (auditStatus[0] && !auditStatus[0].t.includes("'submitted'")) {
+    await conn.query("ALTER TABLE site_audits MODIFY COLUMN status ENUM('requested','assigned','in_progress','submitted','technical_review','completed','reopened') NOT NULL DEFAULT 'requested'");
+    console.log('Migrated: site_audits has the review statuses (submitted, technical_review).');
+  }
+  const hadApprovedVersion = await hasColumn('site_audits', 'approved_version');
+  await addColumn('site_audits', 'submitted_at', 'DATETIME NULL');
+  await addColumn('site_audits', 'approved_at', 'DATETIME NULL');
+  await addColumn('site_audits', 'approved_version', 'INT UNSIGNED NOT NULL DEFAULT 0');
+  await addColumn('site_audits', 'needs_technical', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await addColumn('site_audits', 'technical_note', 'VARCHAR(500) NULL');
+  const hadVersionApproved = await hasColumn('audit_versions', 'approved_at');
+  await addColumn('audit_versions', 'approved_at', 'DATETIME NULL');
+  if (!hadApprovedVersion) {
+    // Audits finished before review existed were released the moment they were submitted.
+    await conn.query('UPDATE site_audits SET approved_version = version, approved_at = completed_at WHERE assessment_id IS NOT NULL');
+  }
+  if (!hadVersionApproved) await conn.query('UPDATE audit_versions SET approved_at = created_at');
 }

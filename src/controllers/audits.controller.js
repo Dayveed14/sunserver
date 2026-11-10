@@ -22,7 +22,7 @@ export const uploadPhoto = asyncHandler(async (req, res) => {
 });
 
 // ---- admin ----
-const STATUSES = ['requested', 'assigned', 'in_progress', 'completed', 'reopened'];
+const STATUSES = ['needs_action', 'requested', 'assigned', 'in_progress', 'submitted', 'technical_review', 'completed', 'reopened'];
 export const adminList = asyncHandler(async (req, res) => res.json(await svc.adminList({ status: STATUSES.includes(req.query.status) ? req.query.status : undefined })));
 export const adminGet = asyncHandler(async (req, res) => res.json({ audit: await svc.adminGet(auditRef(req.params.ref)) }));
 export const assign = asyncHandler(async (req, res) => {
@@ -33,6 +33,16 @@ export const assign = asyncHandler(async (req, res) => {
 export const reopen = asyncHandler(async (req, res) => {
   const out = await svc.reopen(req.user.id, auditRef(req.params.ref), req.valid.note);
   await auditModel.add({ adminId: req.user.id, action: 'audit.reopen', target: req.params.ref, detail: { note: req.valid.note } });
+  res.json(out);
+});
+export const technicalReview = asyncHandler(async (req, res) => {
+  const out = await svc.technicalReview(req.user.id, auditRef(req.params.ref), req.valid.note);
+  await auditModel.add({ adminId: req.user.id, action: 'audit.technical_review', target: req.params.ref, detail: { note: req.valid.note } });
+  res.json(out);
+});
+export const approve = asyncHandler(async (req, res) => {
+  const out = await svc.approve(req.user.id, auditRef(req.params.ref), req.valid.note);
+  await auditModel.add({ adminId: req.user.id, action: 'audit.approve', target: req.params.ref, detail: { version: out.version, note: req.valid.note ?? null } });
   res.json(out);
 });
 export const agents = asyncHandler(async (req, res) => res.json(await svc.agents()));
