@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { HttpError } from '../lib/httpError.js';
 import { findArea, stateName } from '../utils/areas.js';
 import { sniffImage, MAX_IMAGE_BYTES } from '../utils/images.js';
-import { EQUIPMENT, FAULT_TYPES, FEE_BANDS, MAX_FAULT_PHOTOS, MAX_INSPECTION_PHOTOS, PAY_IN_APP_NOTICE, URGENCY, distanceBetween, feeFor, rankTechnicians, technicianShare } from '../utils/repairRules.js';
+import { EQUIPMENT, FAULT_TYPES, FEE_BANDS, MAX_COMPLETION_PHOTOS, MAX_FAULT_PHOTOS, MAX_INSPECTION_PHOTOS, PAY_IN_APP_NOTICE, URGENCY, distanceBetween, feeFor, rankTechnicians, technicianShare } from '../utils/repairRules.js';
 
 export const REPAIR_REF_PREFIX = 'RP-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -13,7 +13,11 @@ const MINUTE = 60 * 1000;
 const label = (list, id) => list.find((x) => x.id === id)?.label ?? id;
 
 // What the customer's timeline shows. Matching steps (recommended, offered, declined…) are our business, not theirs.
-const CUSTOMER_EVENTS = { requested: 'Request sent', paid: 'Call-out fee paid', accepted: 'Technician assigned', on_the_way: 'Technician is on the way', arrived: 'Technician arrived: inspection started', inspected: 'Inspection finished: your cost estimate is ready', cancelled: 'Cancelled' };
+const CUSTOMER_EVENTS = { requested: 'Request sent', paid: 'Call-out fee paid', accepted: 'Technician assigned', on_the_way: 'Technician is on the way', arrived: 'Technician arrived: inspection started', inspected: 'Inspection finished: your cost estimate is ready', cancelled: 'Cancelled',
+  quote_approved: 'You approved the estimate', quote_declined: 'You did not go ahead with the repair', repair_started: 'Repair started', awaiting_parts: 'Waiting for parts', parts_arrived: 'Parts arrived: repair continues',
+  variation_proposed: 'The technician asked to change the estimate', variation_approved: 'You approved the revised estimate', variation_declined: 'You declined the revised estimate', variation_withdrawn: 'The revised estimate was withdrawn',
+  repair_done: 'Repair finished: please check and confirm', confirmed: 'You confirmed the repair', auto_confirmed: 'Closed automatically (no reply in time)', admin_confirmed: 'Closed by TerraVoltix', problem_reported: 'You reported a problem' };
+const WORK = ['approved', 'in_repair', 'awaiting_parts', 'repair_done', 'completed'];
 // Customers may add fault photos until the technician is on the way.
 const PHOTO_OPEN = ['quote', 'awaiting_payment', 'finding', 'assigned'];
 
@@ -38,24 +42,44 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
     return forTechnician ? { ...base, youEarn: technicianShare(rep.total, rules) } : base;
   }
 
+  const lineView = (v) => ({ id: v.id, reason: v.reason, parts: v.parts.map((p) => ({ name: p.name, qty: p.qty, unitPrice: p.unitPrice, amount: p.qty * p.unitPrice })), labour: v.labour, extraTotal: v.extraTotal, status: v.status, at: v.createdAt });
+  // The repair itself: agreed price, revisions, the completion note and the customer's review.
+  async function workView(r, { forTechnician = false } = {}) {
+    if (!WORK.includes(r.status) && !(r.status === 'cancelled' && r.agreedTotal != null)) return null;
+    const [vars, done, review, photos] = await Promise.all([model.variations(r.id), model.completion(r.id), model.review(r.id), model.photos(r.id, 'completion')]);
+    const base = {
+      agreedTotal: r.agreedTotal, paidAmount: r.paidAmount, partsNote: r.partsNote, variations: vars.map(lineView),
+      completion: done ? { summary: done.summary, at: done.at, photos: photos.map((p) => p.id) } : null,
+      confirmDueAt: r.status === 'repair_done' ? r.confirmDueAt : null, problem: r.problemAt ? { at: r.problemAt, note: r.problemNote } : null, review,
+    };
+    if (!forTechnician) return base;
+    return { ...base, completionPhotos: photos.map((p) => p.id), youEarn: technicianShare(r.agreedTotal ?? 0, rules), payoutStatus: r.payoutStatus, payoutAmount: r.payoutAmount };
+  }
+
   async function customerView(r, { full = false } = {}) {
     const base = {
       ref: r.ref, status: r.status, fault: label(FAULT_TYPES, r.faultType), faultType: r.faultType, description: r.description,
       equipment: r.equipment, urgency: r.urgency, address: { line: r.addressLine, state: r.state, areaId: r.areaId, place: place(r) },
       callOutFee: r.callOutFee, feeBand: label(FEE_BANDS, r.feeBand), distanceKm: r.distanceKm, createdAt: r.createdAt, payNotice: PAY_IN_APP_NOTICE,
-      refund: r.status === 'cancelled' ? { amount: r.refundAmount, pending: r.refundNeeded } : null,
+      refund: r.status === 'cancelled' ? { amount: r.refundAmount, pending: r.refundNeeded } : null, paidAmount: r.paidAmount,
     };
     if (!full) return base;
     const [events, photos, tech, report, payment] = await Promise.all([
-      model.events(r.id), model.photos(r.id, 'fault'), ['assigned', 'on_the_way', 'on_site', 'inspected', 'approved', 'in_repair', 'awaiting_parts', 'repair_done', 'completed'].includes(r.status) ? person(r.technicianId) : null,
+      model.events(r.id), model.photos(r.id, 'fault'), ['assigned', 'on_the_way', 'on_site', 'inspected', 'approved', 'in_repair', 'awaiting_parts', 'repair_done', 'completed'].includes(r.status) || (r.status === 'cancelled' && r.technicianId) ? person(r.technicianId) : null,
       reportView(r), ['quote', 'awaiting_payment'].includes(r.status) ? model.latestPayment(r.id) : null,
     ]);
+    const work = await workView(r);
     return {
-      ...base, photos: photos.map((p) => p.id), technician: tech ? { name: tech.name, phone: tech.phone } : null, report,
+      ...base, photos: photos.map((p) => p.id), technician: tech ? { name: tech.name, phone: tech.phone } : null, report, work,
+      canCancel: ['quote', 'awaiting_payment', 'finding', 'assigned', 'on_the_way', 'approved'].includes(r.status),
+      noShowAfter: ['assigned', 'on_the_way'].includes(r.status) ? noShowAt(r) : null,
       timeline: events.filter((e) => CUSTOMER_EVENTS[e.type]).map((e) => ({ type: e.type, text: CUSTOMER_EVENTS[e.type], at: e.at, note: e.type === 'cancelled' ? e.note : null })),
       payment: payment?.status === 'initiated' ? { reference: payment.reference, authorizationUrl: payment.authorizationUrl } : null,
     };
   }
+
+  // A technician who set off but has not arrived by then counts as a no-show.
+  const noShowAt = (r) => new Date(new Date(r.onTheWayAt ?? r.assignedAt).getTime() + rules.noShowHours * 60 * MINUTE);
 
   async function owned(user, ref) {
     const r = await model.findByRef(String(ref));
@@ -113,6 +137,59 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
     return true;
   }
 
+  // Starts a payment for the request (one open payment per request and purpose, however many times the customer taps).
+  async function begin(user, r, { purpose, amount, variationId = null, metaType }) {
+    const { payment, created } = await model.openPayment({ requestId: r.id, reference: `${REPAIR_REF_PREFIX}${code(10)}`, amount, purpose, variationId });
+    if (!payment) throw bad(409, 'NOT_PAYABLE', 'This payment is no longer needed or already made.');
+    if (!created) {
+      for (let i = 0; i < 20; i += 1) {
+        const latest = await model.latestPayment(r.id, purpose);
+        if (latest?.authorizationUrl && latest.status === 'initiated') return { reference: latest.reference, authorizationUrl: latest.authorizationUrl, amount: latest.amount };
+        if (latest && latest.status !== 'initiated') return begin(user, r, { purpose, amount, variationId, metaType });
+        await sleep(config.pollMs ?? 300);
+      }
+      throw bad(503, 'PAYMENT_UNAVAILABLE', 'Your payment is still being set up. Please try again in a moment.');
+    }
+    try {
+      const init = await paystack.initialize({ email: user.email, amountKobo: payment.amount * 100, reference: payment.reference, callbackUrl: config.callbackUrl, metadata: { type: metaType, requestRef: r.ref }, mockPath: '/repair/mock' });
+      await model.setPaymentAuth(payment.id, { url: init.authorizationUrl, accessCode: init.accessCode });
+      return { reference: payment.reference, authorizationUrl: init.authorizationUrl, amount: payment.amount };
+    } catch (err) {
+      await model.failPayment(payment.id);
+      console.error('[repair] could not start payment:', err.message);
+      throw bad(502, 'PAYMENT_UNAVAILABLE', 'We could not start the payment. Please try again in a moment.');
+    }
+  }
+
+  const problem = (request, payment, reference, reason) => notifier.notify('payment_problem', { order: { publicRef: request?.ref ?? `repair ${payment.requestId}` }, reference, reason });
+
+  // The estimate was paid (or needed no payment): the technician is told to start.
+  async function afterApproval(r) {
+    await notifier.notify('repair_approved', { request: brief(r), technician: await person(r.technicianId), earn: technicianShare((await model.report(r.id))?.total ?? 0, rules) });
+  }
+
+  // Payments for the repair itself (the estimate, or a revision of it). Same safety rules as the call-out fee.
+  async function settleLater(payment, request, { amountKobo, currency }) {
+    if ((amountKobo != null && amountKobo !== payment.amount * 100) || (currency != null && currency !== 'NGN')) {
+      await problem(request, payment, payment.reference, 'A repair payment did not match the amount due (amount or currency). The estimate was NOT approved.');
+      return { settled: false, mismatch: true };
+    }
+    if (payment.purpose === 'repair') {
+      const rep = await model.report(payment.requestId);
+      const res = await model.settleRepairPayment({ paymentId: payment.id, requestId: payment.requestId, total: rep?.total ?? 0, paidAt: now() });
+      if (res.replay) return { settled: true, replay: true };
+      if (!res.ok) { await problem(request, payment, payment.reference, 'A repair payment arrived for a request that no longer waits for it (cancelled or already paid). Refund it.'); return { settled: true }; }
+      await afterApproval(await model.findById(payment.requestId));
+      return { settled: true };
+    }
+    const v = await model.findVariation(payment.variationId, payment.requestId);
+    const res = await model.settleVariationPayment({ paymentId: payment.id, requestId: payment.requestId, variationId: payment.variationId, extra: v?.extraTotal ?? 0, paidAt: now() });
+    if (res.replay) return { settled: true, replay: true };
+    if (!res.ok) { await problem(request, payment, payment.reference, 'A payment for a revised estimate arrived after it was withdrawn or the repair closed. Refund it.'); return { settled: true }; }
+    await notifier.notify('repair_variation_decided', { request: brief(request), technician: await person(request.technicianId), approved: true, extra: v.extraTotal });
+    return { settled: true };
+  }
+
   return {
     options: () => ({
       faultTypes: FAULT_TYPES, equipment: EQUIPMENT, urgency: URGENCY, maxPhotos: MAX_FAULT_PHOTOS, payNotice: PAY_IN_APP_NOTICE,
@@ -163,26 +240,73 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
     async pay(user, ref) {
       const r = await owned(user, ref);
       if (!['quote', 'awaiting_payment'].includes(r.status)) throw bad(409, 'NOT_PAYABLE', 'This request is already paid or closed.');
-      const { payment, created } = await model.openPayment({ requestId: r.id, reference: `${REPAIR_REF_PREFIX}${code(10)}`, amount: r.callOutFee });
-      if (!payment) throw bad(409, 'NOT_PAYABLE', 'This request is already paid or closed.');
-      if (!created) {
-        for (let i = 0; i < 20; i += 1) {
-          const latest = await model.latestPayment(r.id);
-          if (latest?.authorizationUrl && latest.status === 'initiated') return { reference: latest.reference, authorizationUrl: latest.authorizationUrl, amount: latest.amount };
-          if (latest && latest.status !== 'initiated') return this.pay(user, ref);
-          await sleep(config.pollMs ?? 300);
-        }
-        throw bad(503, 'PAYMENT_UNAVAILABLE', 'Your payment is still being set up. Please try again in a moment.');
+      return begin(user, r, { purpose: 'call_out', amount: r.callOutFee, metaType: 'repair_call_out' });
+    },
+    // The customer approves the technician's estimate. The call-out fee is credited; the rest is paid in the app.
+    async approveQuote(user, ref) {
+      const r = await owned(user, ref);
+      const rep = r.status === 'inspected' ? await model.report(r.id) : null;
+      if (!rep) throw bad(409, 'NOT_PAYABLE', 'There is no estimate waiting for your approval.');
+      const due = Math.max(0, rep.total - r.callOutFee);
+      if (due === 0) {
+        if (!(await model.approveFree({ requestId: r.id, total: Math.max(rep.total, r.callOutFee), at: now() }))) throw bad(409, 'NOT_PAYABLE', 'This estimate was just handled.');
+        await afterApproval(r);
+        return { approved: true, due: 0 };
       }
-      try {
-        const init = await paystack.initialize({ email: user.email, amountKobo: payment.amount * 100, reference: payment.reference, callbackUrl: config.callbackUrl, metadata: { type: 'repair_call_out', requestRef: r.ref }, mockPath: '/repair/mock' });
-        await model.setPaymentAuth(payment.id, { url: init.authorizationUrl, accessCode: init.accessCode });
-        return { reference: payment.reference, authorizationUrl: init.authorizationUrl, amount: payment.amount };
-      } catch (err) {
-        await model.failPayment(payment.id);
-        console.error('[repair] could not start payment:', err.message);
-        throw bad(502, 'PAYMENT_UNAVAILABLE', 'We could not start the payment. Please try again in a moment.');
-      }
+      return begin(user, r, { purpose: 'repair', amount: due, metaType: 'repair_quote' });
+    },
+    async declineQuote(user, ref) {
+      const r = await owned(user, ref);
+      if (r.status !== 'inspected') throw bad(409, 'NOT_PAYABLE', 'There is no estimate waiting for your decision.');
+      if (!(await model.declineQuote({ requestId: r.id, at: now(), payoutAmount: technicianShare(r.callOutFee, rules) }))) throw bad(409, 'NOT_PAYABLE', 'This estimate was just handled.');
+      await notifier.notify('repair_quote_declined', { request: brief(r), technician: await person(r.technicianId), earn: technicianShare(r.callOutFee, rules) });
+      return { status: 'cancelled' };
+    },
+    // A change to the estimate during the repair: the customer approves and pays the extra, or declines (work continues as quoted).
+    async approveVariation(user, ref, id) {
+      const r = await owned(user, ref);
+      const v = await model.findVariation(id, r.id);
+      if (!v || v.status !== 'proposed' || !['in_repair', 'awaiting_parts'].includes(r.status)) throw bad(409, 'NOT_PAYABLE', 'There is no revised estimate waiting for you.');
+      return begin(user, r, { purpose: 'variation', amount: v.extraTotal, variationId: v.id, metaType: 'repair_variation' });
+    },
+    async declineVariation(user, ref, id) {
+      const r = await owned(user, ref);
+      if (!(await model.closeVariation({ id, requestId: r.id, to: 'declined', at: now(), actor: 'customer' }))) throw bad(409, 'NOT_PAYABLE', 'There is no revised estimate waiting for you.');
+      await notifier.notify('repair_variation_decided', { request: brief(r), technician: await person(r.technicianId), approved: false });
+      return { declined: true };
+    },
+    async confirm(user, ref) {
+      const r = await owned(user, ref);
+      if (r.status === 'completed') return { status: 'completed', already: true };
+      if (r.status !== 'repair_done') throw bad(409, 'NOT_READY', 'The technician has not reported the repair as finished yet.');
+      if (!(await model.confirm({ requestId: r.id, at: now(), actor: 'customer', payoutAmount: technicianShare(r.agreedTotal ?? 0, rules) }))) throw bad(409, 'NOT_READY', 'This repair just changed. Please look again.');
+      await notifier.notify('repair_completed', { request: brief(r), technician: await person(r.technicianId), earn: technicianShare(r.agreedTotal ?? 0, rules), auto: false });
+      return { status: 'completed' };
+    },
+    async reportProblem(user, ref, note) {
+      const r = await owned(user, ref);
+      if (!(await model.reportProblem({ requestId: r.id, note, at: now() }))) throw bad(409, 'NOT_READY', 'You can report a problem once the technician has finished, and only once.');
+      await notifier.notify('repair_problem', { request: brief(r), note, customer: await person(r.customerId) });
+      return { reported: true };
+    },
+    async review(user, ref, { rating, comment }) {
+      const r = await owned(user, ref);
+      if (r.status !== 'completed' || !r.technicianId) throw bad(409, 'NOT_READY', 'You can review a repair once it is complete.');
+      if (!(await model.addReview({ requestId: r.id, customerId: user.id, technicianId: r.technicianId, rating, comment }))) throw bad(409, 'ALREADY_REVIEWED', 'You already reviewed this repair.');
+      await model.addEvent(r.id, 'reviewed', 'customer');
+      return { reviewed: true };
+    },
+    // The technician set off (or was assigned) but has not turned up in time: the customer may cancel for a full refund.
+    async noShow(user, ref) {
+      const r = await owned(user, ref);
+      if (!['assigned', 'on_the_way'].includes(r.status)) throw bad(409, 'NOT_READY', 'This only applies while you are waiting for the technician to arrive.');
+      if (now() < noShowAt(r)) throw bad(409, 'TOO_EARLY', `You can report a no-show ${rules.noShowHours} hours after the technician set off. If you cancel before that, only part of the call-out fee is refunded.`);
+      const ok = await model.cancel({ requestId: r.id, reason: 'The technician did not arrive (full refund)', at: now(), refundAmount: r.paidAmount, from: [r.status], actor: 'customer' });
+      if (!ok) throw bad(409, 'NOT_CANCELLABLE', 'This request just changed. Please look again.');
+      await model.addEvent(r.id, 'no_show', 'system');
+      const customer = await usersModel.findById(r.customerId);
+      await notifier.notify('repair_cancelled', { request: brief(r), refund: r.paidAmount, reason: 'The technician did not arrive', customer: { email: customer?.email, fullName: customer?.full_name }, technician: await person(r.technicianId) });
+      return { status: 'cancelled', refund: r.paidAmount };
     },
 
     // The single place a repair payment is counted.
@@ -195,6 +319,7 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
         return { settled: false, status };
       }
       const request = await model.findById(payment.requestId);
+      if (payment.purpose !== 'call_out') return settleLater(payment, request, { amountKobo, currency });
       if ((amountKobo != null && amountKobo !== payment.amount * 100) || (currency != null && currency !== 'NGN')) {
         await notifier.notify('payment_problem', { order: { publicRef: request?.ref ?? `repair ${payment.requestId}` }, reference, reason: 'A repair payment did not match the call-out fee (amount or currency). The request was NOT opened.' });
         return { settled: false, mismatch: true };
@@ -246,10 +371,11 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
       const r = await owned(user, ref);
       const full = ['finding', 'assigned'].includes(r.status);
       const half = r.status === 'on_the_way';
-      if (!full && !half && !['quote', 'awaiting_payment'].includes(r.status)) throw bad(409, 'NOT_CANCELLABLE', 'The technician has already arrived, so this request can no longer be cancelled here.');
-      const refundAmount = full ? r.callOutFee : half ? Math.round(r.callOutFee / 2) : 0;
-      const reason = half ? 'Cancelled by the customer after the technician set off (half the call-out fee is refunded)' : 'Cancelled by the customer';
-      const ok = await model.cancel({ requestId: r.id, reason, at: now(), refundAmount, from: [r.status], actor: 'customer' });
+      const afterQuote = r.status === 'approved'; // the visit was used: only the repair payment comes back
+      if (!full && !half && !afterQuote && !['quote', 'awaiting_payment'].includes(r.status)) throw bad(409, 'NOT_CANCELLABLE', r.status === 'inspected' ? 'Use "No thanks" on the estimate instead.' : ['in_repair', 'awaiting_parts', 'repair_done'].includes(r.status) ? 'The repair has started. If something is wrong, tell us with "Report a problem" or contact support.' : 'This request can no longer be cancelled here.');
+      const refundAmount = full ? r.callOutFee : half ? Math.round(r.callOutFee / 2) : afterQuote ? Math.max(0, r.paidAmount - r.callOutFee) : 0;
+      const reason = half ? 'Cancelled by the customer after the technician set off (half the call-out fee is refunded)' : afterQuote ? 'Cancelled by the customer before the repair started (the call-out fee is kept; the repair payment is refunded)' : 'Cancelled by the customer';
+      const ok = await model.cancel({ requestId: r.id, reason, at: now(), refundAmount, from: [r.status], actor: 'customer', payoutAmount: afterQuote ? technicianShare(r.callOutFee, rules) : 0 });
       if (!ok) throw bad(409, 'NOT_CANCELLABLE', 'This request just changed. Please look again.');
       if (refundAmount > 0) {
         const customer = await usersModel.findById(r.customerId);
@@ -264,14 +390,14 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
     },
     async myJobs(tech) {
       const jobs = await model.jobsFor(tech.id);
-      return { jobs: await Promise.all(jobs.map((r) => this.jobView(r, tech))) };
+      return { jobs: await Promise.all(jobs.map((r) => this.jobView(r, tech))), earnings: await model.earnings(tech.id), rating: await model.ratingFor(tech.id) };
     },
     async jobView(r, tech) {
-      const base = { ...brief(r), status: r.status, youEarn: technicianShare(r.callOutFee, rules), assignedAt: r.assignedAt, onTheWayAt: r.onTheWayAt, arrivedAt: r.arrivedAt, inspectedAt: r.inspectedAt };
+      const base = { ...brief(r), status: r.status, youEarn: technicianShare(r.callOutFee, rules), assignedAt: r.assignedAt, onTheWayAt: r.onTheWayAt, arrivedAt: r.arrivedAt, inspectedAt: r.inspectedAt, payoutStatus: r.payoutStatus, payoutAmount: r.payoutAmount };
       if (r.technicianId !== tech.id) return base;
       return {
         ...base, address: `${r.addressLine}, ${place(r)}`, customer: { name: r.contactName, phone: r.contactPhone },
-        faultPhotos: (await model.photos(r.id, 'fault')).map((p) => p.id), inspectionPhotos: (await model.photos(r.id, 'inspection')).map((p) => p.id), report: await reportView(r, { forTechnician: true }),
+        faultPhotos: (await model.photos(r.id, 'fault')).map((p) => p.id), inspectionPhotos: (await model.photos(r.id, 'inspection')).map((p) => p.id), report: await reportView(r, { forTechnician: true }), work: await workView(r, { forTechnician: true }),
       };
     },
     // An offered job (before accepting) or one of the technician's own. Anything else looks like it does not exist.
@@ -348,17 +474,82 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
       return { status: 'inspected', report: await reportView(fresh, { forTechnician: true }) };
     },
 
+    // ---- the repair itself (technician) ----
+    async startRepair(tech, ref) {
+      const r = await ownedJob(tech, ref);
+      if (r.status === 'in_repair') return { status: 'in_repair', already: true };
+      if (!(await model.startRepair({ requestId: r.id, technicianId: tech.id, at: now() }))) throw bad(409, 'NOT_READY', 'You can start once the customer has approved and paid for the estimate.');
+      return { status: 'in_repair' };
+    },
+    async awaitingParts(tech, ref, note) {
+      const r = await ownedJob(tech, ref);
+      if (!(await model.setAwaitingParts({ requestId: r.id, technicianId: tech.id, waiting: true, note }))) throw bad(409, 'NOT_READY', 'You can mark "waiting for parts" while the repair is under way.');
+      const customer = await usersModel.findById(r.customerId);
+      await notifier.notify('repair_awaiting_parts', { request: brief(r), customer: { email: customer?.email, fullName: customer?.full_name }, note });
+      return { status: 'awaiting_parts' };
+    },
+    async partsArrived(tech, ref) {
+      const r = await ownedJob(tech, ref);
+      if (!(await model.setAwaitingParts({ requestId: r.id, technicianId: tech.id, waiting: false }))) throw bad(409, 'NOT_READY', 'This repair is not waiting for parts.');
+      return { status: 'in_repair' };
+    },
+    // Extra parts or labour found during the repair. The customer must approve and pay before it counts.
+    async proposeVariation(tech, ref, input) {
+      const r = await ownedJob(tech, ref);
+      const extra = input.parts.reduce((x, p) => x + p.qty * p.unitPrice, 0) + input.labour;
+      if (extra <= 0) throw bad(400, 'VALIDATION_ERROR', 'Add at least one part or some labour so there is an extra cost.');
+      if ((r.agreedTotal ?? 0) + extra > 5_000_000) throw bad(400, 'VALIDATION_ERROR', 'That total is more than we can quote here. Contact TerraVoltix support.');
+      const res = await model.proposeVariation({ requestId: r.id, technicianId: tech.id, reason: input.reason, parts: input.parts, labour: input.labour, extraTotal: extra });
+      if (res.error === 'PENDING') throw bad(409, 'PENDING', 'A revised estimate is already waiting for the customer. Withdraw it first to send another.');
+      if (res.error) throw bad(409, 'NOT_READY', 'You can propose a change while the repair is under way.');
+      const customer = await usersModel.findById(r.customerId);
+      await notifier.notify('repair_variation', { request: brief(r), customer: { email: customer?.email, fullName: customer?.full_name }, extra, reason: input.reason });
+      return { id: res.id, extraTotal: extra };
+    },
+    async withdrawVariation(tech, ref, id) {
+      const r = await ownedJob(tech, ref);
+      if (!(await model.closeVariation({ id, requestId: r.id, to: 'withdrawn', at: now(), actor: 'technician' }))) throw bad(409, 'NOT_READY', 'There is no pending revised estimate to withdraw.');
+      return { withdrawn: true };
+    },
+    async addCompletionPhoto(tech, ref, body) {
+      const r = await ownedJob(tech, ref);
+      if (!['in_repair', 'awaiting_parts'].includes(r.status)) throw bad(409, 'PHOTOS_CLOSED', 'Add pictures of the finished work before you report the repair as done.');
+      if ((await model.photos(r.id, 'completion')).length >= MAX_COMPLETION_PHOTOS) throw bad(409, 'TOO_MANY_PHOTOS', `You can add up to ${MAX_COMPLETION_PHOTOS} pictures.`);
+      return { id: await storePhoto(r.id, tech.id, 'completion', body) };
+    },
+    async removeCompletionPhoto(tech, ref, id) {
+      const r = await ownedJob(tech, ref);
+      if (!['in_repair', 'awaiting_parts'].includes(r.status)) throw bad(409, 'PHOTOS_CLOSED', 'Pictures can no longer be changed.');
+      if (!(await model.removePhoto(r.id, id, tech.id))) throw notFound();
+      return { removed: true };
+    },
+    // Work finished: at least one picture and a short summary. The customer then has a set time to confirm.
+    async complete(tech, ref, summary) {
+      const r = await ownedJob(tech, ref);
+      if (r.status === 'repair_done') throw bad(409, 'ALREADY_REPORTED', 'You already reported this repair as finished.');
+      if (r.status !== 'in_repair') throw bad(409, 'NOT_READY', 'The repair must be under way (not waiting for parts) before you can finish it.');
+      if ((await model.variations(r.id)).some((v) => v.status === 'proposed')) throw bad(409, 'PENDING', 'A revised estimate is still waiting for the customer. Withdraw it or wait for the answer first.');
+      if ((await model.photos(r.id, 'completion')).length === 0) throw bad(400, 'PHOTO_REQUIRED', 'Add at least one picture of the finished work.');
+      const res = await model.complete({ requestId: r.id, technicianId: tech.id, summary, at: now(), confirmDueAt: new Date(now().getTime() + rules.confirmHours * 60 * MINUTE) });
+      if (res.error === 'PENDING') throw bad(409, 'PENDING', 'A revised estimate is still waiting for the customer. Withdraw it or wait for the answer first.');
+      if (res.error) throw bad(409, 'NOT_READY', 'The repair must be under way (not waiting for parts) before you can finish it.');
+      const customer = await usersModel.findById(r.customerId);
+      await notifier.notify('repair_done', { request: brief(r), customer: { email: customer?.email, fullName: customer?.full_name }, hours: rules.confirmHours });
+      return { status: 'repair_done' };
+    },
+
     // ---------- admin ----------
     async adminList({ status, needsAction }) { return { requests: await model.listForAdmin({ status, needsAction }), stats: await model.adminStats() }; },
     async adminGet(ref) {
       const r = await model.findByRef(String(ref));
       if (!r) throw notFound();
       const [customer, technician, matches, events, faultPhotos, report] = await Promise.all([person(r.customerId), person(r.technicianId), model.matches(r.id), model.events(r.id), model.photos(r.id), reportView(r)]);
+      const work = await workView(r, { forTechnician: true });
       // Technicians the admin could pick by hand: every available technician, ranked, including those at capacity.
       const choices = r.status === 'finding' ? (await ranking(r)).map((c) => ({ id: c.id, name: c.fullName, score: c.score, distanceKm: c.distanceKm, atCapacity: c.atCapacity, activeJobs: c.activeJobs, completedJobs: c.completedJobs })) : [];
       return {
         request: { ...r, fault: label(FAULT_TYPES, r.faultType), equipment: r.equipment.map((e) => label(EQUIPMENT, e)), place: place(r), customer, technician },
-        matches, timeline: events, photos: faultPhotos.map((p) => ({ id: p.id, kind: p.kind })), report, choices, adminMinutes: rules.adminMinutes,
+        matches, timeline: events, photos: faultPhotos.map((p) => ({ id: p.id, kind: p.kind })), report, work, choices, adminMinutes: rules.adminMinutes,
       };
     },
     // Approve the recommended technician: the job is offered to them.
@@ -406,12 +597,32 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
     async adminCancel(adminId, ref, reason, audit) {
       const r = await model.findByRef(String(ref));
       if (!r) throw notFound();
-      const ok = await model.cancel({ requestId: r.id, reason, at: now(), refundAmount: r.callOutFee, from: ['finding', 'assigned', 'on_the_way', 'on_site'], actor: 'admin' });
+      const from = ['finding', 'assigned', 'on_the_way', 'on_site', 'inspected', 'approved', 'in_repair', 'awaiting_parts', 'repair_done'];
+      if (!from.includes(r.status)) throw bad(409, 'NOT_CANCELLABLE', 'This request cannot be cancelled now.');
+      // Everything the customer paid goes back; no payout is owed.
+      const ok = await model.cancel({ requestId: r.id, reason, at: now(), refundAmount: r.paidAmount, from: [r.status], actor: 'admin' });
       if (!ok) throw bad(409, 'NOT_CANCELLABLE', 'This request cannot be cancelled now.');
-      await audit({ adminId, action: 'repair.cancel', target: `repair:${r.ref}`, detail: { reason } });
+      await audit({ adminId, action: 'repair.cancel', target: `repair:${r.ref}`, detail: { reason, refund: r.paidAmount } });
       const customer = await usersModel.findById(r.customerId);
-      await notifier.notify('repair_cancelled', { request: brief(r), refund: r.callOutFee, reason, customer: { email: customer?.email, fullName: customer?.full_name }, technician: await person(r.technicianId) });
+      await notifier.notify('repair_cancelled', { request: brief(r), refund: r.paidAmount, reason, customer: { email: customer?.email, fullName: customer?.full_name }, technician: await person(r.technicianId) });
       return { status: 'cancelled' };
+    },
+    // The admin closes a finished repair for the customer (after a reported problem was sorted out).
+    async adminConfirm(adminId, ref, audit) {
+      const r = await model.findByRef(String(ref));
+      if (!r) throw notFound();
+      if (!(await model.confirm({ requestId: r.id, at: now(), actor: 'admin', payoutAmount: technicianShare(r.agreedTotal ?? 0, rules) }))) throw bad(409, 'NOT_READY', 'This repair is not waiting to be closed.');
+      await audit({ adminId, action: 'repair.confirm', target: `repair:${r.ref}`, detail: { payout: technicianShare(r.agreedTotal ?? 0, rules) } });
+      await notifier.notify('repair_completed', { request: brief(r), technician: await person(r.technicianId), earn: technicianShare(r.agreedTotal ?? 0, rules), auto: false });
+      return { status: 'completed' };
+    },
+    async adminPayoutPaid(adminId, ref, audit) {
+      const r = await model.findByRef(String(ref));
+      if (!r) throw notFound();
+      if (!(await model.markPayoutPaid(r.id, now()))) throw bad(409, 'NOTHING_OWED', 'There is no payout owed on this repair.');
+      await model.addEvent(r.id, 'payout_paid', 'admin');
+      await audit({ adminId, action: 'repair.payout', target: `repair:${r.ref}`, detail: { amount: r.payoutAmount } });
+      return { payoutStatus: 'paid' };
     },
     async adminRefunded(adminId, ref, audit) {
       const r = await model.findByRef(String(ref));
@@ -441,7 +652,14 @@ export function createRepairsService({ model, paystack, notifier, usersModel, cl
         await advance(r, `${tech?.name ?? 'The technician'} did not answer in time.`);
         lapsed += 1;
       }
-      return { autoApproved, lapsed };
+      let autoConfirmed = 0;
+      for (const r of await model.dueConfirm(t)) {
+        const earn = technicianShare(r.agreedTotal ?? 0, rules);
+        if (!(await model.confirm({ requestId: r.id, at: t, actor: 'system', payoutAmount: earn }))) continue;
+        await notifier.notify('repair_completed', { request: brief(r), technician: await person(r.technicianId), earn, auto: true });
+        autoConfirmed += 1;
+      }
+      return { autoApproved, lapsed, autoConfirmed };
     },
   };
 

@@ -74,6 +74,7 @@ const DEFS = [
   ['repairAdminMinutes', 'Time the admin has to act on a recommended technician', 'Repairs', 'number', 'R', ['adminMinutes'], 1, 1440, 'minutes, then it is approved automatically'],
   ['repairTechnicianMinutes', 'Time a technician has to answer an offer', 'Repairs', 'number', 'R', ['technicianMinutes'], 5, 1440, 'minutes, then it goes to the next technician'],
   ['repairConfirmHours', 'Close a finished repair by itself after', 'Repairs', 'number', 'R', ['confirmHours'], 1, 336, 'hours, if the customer does not confirm'],
+  ['repairNoShowHours', 'Technician counts as a no-show after', 'Repairs', 'number', 'R', ['noShowHours'], 1, 48, 'hours after "on my way" without arriving: the customer may cancel for a full refund'],
   // Lease to own: pay small small
   ['leaseMarkup3', 'Mark-up on a 3-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '3'], 0, 1, 'over the cash price'],
   ['leaseMarkup4', 'Mark-up on a 4-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '4'], 0, 1, 'over the cash price'],

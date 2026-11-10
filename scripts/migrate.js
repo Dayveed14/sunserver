@@ -115,4 +115,26 @@ export async function migrate(conn, database = 'solalium') {
     await conn.query("ALTER TABLE verification_documents MODIFY COLUMN kind ENUM('cac','tax','id','shop','other','certificate','work','photo') NOT NULL");
     console.log('Migrated: verification_documents.kind now accepts installer certificates and photos.');
   }
+  // Phase 4 (repairs, part B): quote approval and payment, the repair itself, completion, payout.
+  const hadAgreed = await hasColumn('repair_requests', 'agreed_total');
+  await addColumn('repair_requests', 'agreed_total', 'INT UNSIGNED NULL');
+  await addColumn('repair_requests', 'paid_amount', 'INT UNSIGNED NOT NULL DEFAULT 0');
+  await addColumn('repair_requests', 'approved_at', 'DATETIME NULL');
+  await addColumn('repair_requests', 'repair_started_at', 'DATETIME NULL');
+  await addColumn('repair_requests', 'repair_done_at', 'DATETIME NULL');
+  await addColumn('repair_requests', 'completed_at', 'DATETIME NULL');
+  await addColumn('repair_requests', 'confirm_due_at', 'DATETIME NULL');
+  await addColumn('repair_requests', 'problem_at', 'DATETIME NULL');
+  await addColumn('repair_requests', 'problem_note', 'VARCHAR(500) NULL');
+  await addColumn('repair_requests', 'parts_note', 'VARCHAR(300) NULL');
+  await addColumn('repair_requests', 'payout_amount', 'INT UNSIGNED NOT NULL DEFAULT 0');
+  await addColumn('repair_requests', 'payout_status', "ENUM('none','owed','paid') NOT NULL DEFAULT 'none'");
+  await addColumn('repair_requests', 'payout_paid_at', 'DATETIME NULL');
+  await addColumn('repair_payments', 'variation_id', 'BIGINT UNSIGNED NULL');
+  if (!hadAgreed) await conn.query('UPDATE repair_requests SET paid_amount = call_out_fee WHERE paid_at IS NOT NULL AND status <> \'cancelled\'');
+  const [photoKind] = await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'repair_photos' AND column_name = 'kind'", [database]);
+  if (photoKind[0] && !photoKind[0].t.includes("'completion'")) {
+    await conn.query("ALTER TABLE repair_photos MODIFY COLUMN kind ENUM('fault','inspection','completion') NOT NULL");
+    console.log('Migrated: repair_photos.kind now accepts completion pictures.');
+  }
 }

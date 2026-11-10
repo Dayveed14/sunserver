@@ -26,3 +26,13 @@ export const repairReportSchema = z.object({
   labour: money,
   estimatedHours: z.number().int().min(1, 'Give a time estimate in hours').max(720),
 }).strict();
+
+export const partsNoteSchema = z.object({ note: z.string().trim().min(5, 'Say which parts you are waiting for').max(300) }).strict();
+export const variationSchema = z.object({
+  reason: z.string().trim().min(10, 'Explain why the cost changes (at least a sentence)').max(1000),
+  parts: z.array(z.object({ name: z.string().trim().min(2).max(120), qty: z.number().int().min(1).max(999), unitPrice: money }).strict()).max(20),
+  labour: money,
+}).strict();
+export const completeSchema = z.object({ summary: z.string().trim().min(10, 'Say what you did (at least a sentence)').max(2000) }).strict();
+export const problemSchema = z.object({ note: z.string().trim().min(10, 'Tell us what is wrong (at least a sentence)').max(500) }).strict();
+export const reviewSchema = z.object({ rating: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional() }).strict();

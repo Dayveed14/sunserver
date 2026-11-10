@@ -1404,6 +1404,190 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal(late.settled, true);
   assert.ok(mails.some((m) => m.includes('already paid or cancelled') || m.includes('Refund it')), 'a payment on a cancelled request is flagged for refund');
   step('wrong-amount repair payments are held; a late payment on a cancelled request is flagged');
+
+  // ===== repairs, part B =====
+  const row = async (ref) => (await query('SELECT * FROM repair_requests WHERE public_ref = ?', [ref]))[0];
+  const quick = async (labour, parts = []) => {
+    const ref = await toAssigned();
+    await T1.api('POST', `/installer/repairs/${ref}/on-my-way`);
+    await T1.api('POST', `/installer/repairs/${ref}/arrived`);
+    const rr = await T1.api('POST', `/installer/repairs/${ref}/report`, { findings: 'Found a loose connection at the battery terminals.', parts, labour, estimatedHours: 2 });
+    assert.equal(rr.status, 200, JSON.stringify(rr.body));
+    return ref;
+  };
+  const finish = async (ref) => {
+    assert.equal((await T1.api('POST', `/installer/repairs/${ref}/completion-photos`, null, {}, { type: 'image/png', data: png })).status, 201);
+    const d = await T1.api('POST', `/installer/repairs/${ref}/complete`, { summary: 'Replaced the part, tested under load for an hour, all good.' });
+    assert.equal(d.status, 200, JSON.stringify(d.body));
+  };
+
+  // approving the estimate: who may, how many taps, wrong amounts, one payment
+  assert.equal((await cust3('POST', `/repairs/${R1}/approve-quote`)).status, 404, 'another customer cannot approve it');
+  assert.equal((await vendor('POST', `/repairs/${R1}/approve-quote`)).status, 403);
+  assert.equal((await T1.api('POST', `/repairs/${R1}/approve-quote`)).status, 403, 'a technician cannot approve their own estimate');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/start`)).status, 409, 'cannot start before the customer approves and pays');
+  const aq = await Promise.all([1, 2, 3].map(() => buyer('POST', `/repairs/${R1}/approve-quote`)));
+  assert.ok(aq.every((t) => t.status === 201), JSON.stringify(aq.map((t) => t.body)));
+  assert.equal(new Set(aq.map((t) => t.body.reference)).size, 1, 'three taps, one payment');
+  assert.equal(aq[0].body.amount, 53000, 'the call-out fee is credited');
+  const shortQ = await repairsService.handleResult({ reference: aq[0].body.reference, status: 'success', amountKobo: 100, currency: 'NGN' });
+  assert.equal(shortQ.mismatch, true);
+  assert.equal((await row(R1)).status, 'inspected', 'a wrong amount does not approve the estimate');
+  const paidQ = await Promise.all([1, 2, 3, 4].map(() => buyer('POST', '/repairs/mock-pay', { reference: aq[0].body.reference })));
+  assert.ok(paidQ.every((p) => p.status === 200 && p.body.status === 'paid'), JSON.stringify(paidQ.map((p) => p.body)));
+  const a1 = await row(R1);
+  assert.deepEqual([a1.status, Number(a1.agreed_total), Number(a1.paid_amount)], ['approved', 58000, 58000], 'counted once');
+  assert.equal((await buyer('POST', `/repairs/${R1}/approve-quote`)).status, 409, 'already approved');
+  assert.equal((await buyer('POST', `/repairs/${R1}/decline-quote`)).status, 409);
+  assert.ok(mails.some((m) => m.includes(`Estimate approved and paid · ${R1}`)), 'the technician is told to start');
+  step('estimate approval: only the customer; 3 taps = 1 payment of ₦53,000 (call-out credited); wrong amount held; counted once → approved');
+
+  // the repair: start, parts, variations
+  assert.equal((await T2.api('POST', `/installer/repairs/${R1}/start`)).status, 404, 'only the assigned technician');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/start`)).status, 200);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/start`)).status, 200, 'tapping twice is harmless');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/awaiting-parts`, { note: 'x' })).status, 400);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/awaiting-parts`, { note: 'Waiting for a new control board from the supplier' })).status, 200);
+  assert.equal((await buyer('GET', `/repairs/${R1}`)).body.request.status, 'awaiting_parts');
+  assert.ok(mails.some((m) => m.includes(`Waiting for parts · ${R1}`)));
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/complete`, { summary: 'Finished everything today.' })).status, 409, 'cannot finish while waiting for parts');
+  const vbody = { reason: 'The battery bank also needs a new busbar and extra labour.', parts: [{ name: 'Busbar', qty: 1, unitPrice: 8000 }], labour: 4000 };
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/variations`, { ...vbody, parts: [], labour: 0 })).status, 400, 'a change needs an extra cost');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/variations`, { ...vbody, extraTotal: 1 })).status, 400, 'the system adds it up');
+  const v1 = await T1.api('POST', `/installer/repairs/${R1}/variations`, vbody);
+  assert.equal(v1.status, 201, JSON.stringify(v1.body));
+  assert.equal(v1.body.extraTotal, 12000);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/variations`, vbody)).status, 409, 'one pending revision at a time');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/parts-arrived`)).status, 200);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/parts-arrived`)).status, 409);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/complete`, { summary: 'Finished everything today.' })).status, 409, 'cannot finish with a revision still waiting');
+  const wv = (await buyer('GET', `/repairs/${R1}`)).body.request.work;
+  assert.deepEqual([wv.variations.length, wv.variations[0].extraTotal, wv.variations[0].status], [1, 12000, 'proposed']);
+  assert.equal(wv.agreedTotal, 58000, 'nothing changes until the customer approves');
+  assert.equal((await cust3('POST', `/repairs/${R1}/variations/${v1.body.id}/approve`)).status, 404);
+  const va = await Promise.all([1, 2, 3].map(() => buyer('POST', `/repairs/${R1}/variations/${v1.body.id}/approve`)));
+  assert.ok(va.every((t) => t.status === 201 && t.body.amount === 12000), JSON.stringify(va.map((t) => t.body)));
+  assert.equal(new Set(va.map((t) => t.body.reference)).size, 1);
+  assert.equal((await buyer('POST', '/repairs/mock-pay', { reference: va[0].body.reference })).status, 200);
+  assert.equal((await buyer('POST', '/repairs/mock-pay', { reference: va[0].body.reference })).status, 200, 'paying twice is counted once');
+  const a2 = await row(R1);
+  assert.deepEqual([Number(a2.agreed_total), Number(a2.paid_amount)], [70000, 70000]);
+  assert.equal((await buyer('POST', `/repairs/${R1}/variations/${v1.body.id}/decline`)).status, 409, 'an approved revision cannot be declined');
+  // declined and withdrawn revisions
+  const v2 = await T1.api('POST', `/installer/repairs/${R1}/variations`, vbody);
+  assert.equal((await buyer('POST', `/repairs/${R1}/variations/${v2.body.id}/decline`)).status, 200);
+  assert.equal((await buyer('POST', `/repairs/${R1}/variations/${v2.body.id}/approve`)).status, 409, 'a declined revision cannot be paid');
+  const v3 = await T1.api('POST', `/installer/repairs/${R1}/variations`, vbody);
+  assert.equal((await T2.api('POST', `/installer/repairs/${R1}/variations/${v3.body.id}/withdraw`)).status, 404);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/variations/${v3.body.id}/withdraw`)).status, 200);
+  assert.equal((await row(R1)).agreed_total, 70000);
+  step('repair: start; waiting for parts and back; a revision of ₦12,000 waits for the customer, is paid once (₦70,000 agreed); declined and withdrawn revisions change nothing');
+
+  // finishing, confirming, payout, review
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/complete`, { summary: 'Replaced the board and busbar, tested for an hour.' })).status, 400, 'a picture of the finished work is required');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/completion-photos`, null, {}, { type: 'image/png', data: Buffer.from('nope nope nope') })).status, 400);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/complete`, { summary: 'short' })).status, 400);
+  assert.equal((await buyer('POST', `/repairs/${R1}/confirm`)).status, 409, 'nothing to confirm yet');
+  await finish(R1);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/complete`, { summary: 'Replaced the board and busbar, tested for an hour.' })).status, 409, 'reported once');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/completion-photos`, null, {}, { type: 'image/png', data: png })).status, 409, 'no pictures after finishing');
+  const fv = (await buyer('GET', `/repairs/${R1}`)).body.request;
+  assert.equal(fv.status, 'repair_done');
+  assert.ok(fv.work.completion.summary.includes('Replaced') && fv.work.confirmDueAt, 'the customer sees what was done and when it closes by itself');
+  assert.equal((await buyer('GET', `/repairs/${R1}/photos/${fv.work.completion.photos[0]}`)).status, 200);
+  assert.equal((await cust3('GET', `/repairs/${R1}/photos/${fv.work.completion.photos[0]}`)).status, 404);
+  assert.ok(mails.some((m) => m.includes(`Your repair is finished · ${R1}`)));
+  assert.equal((await buyer('POST', `/repairs/${R1}/cancel`)).status, 409, 'cannot cancel a finished repair');
+  assert.equal((await buyer('POST', `/repairs/${R1}/review`, { rating: 5 })).status, 409, 'review only after completion');
+  assert.equal((await cust3('POST', `/repairs/${R1}/confirm`)).status, 404);
+  assert.equal((await buyer('POST', `/repairs/${R1}/confirm`)).status, 200);
+  assert.equal((await buyer('POST', `/repairs/${R1}/confirm`)).body.already, true, 'confirming twice is harmless');
+  const done1 = await row(R1);
+  assert.deepEqual([done1.status, Number(done1.payout_amount), done1.payout_status], ['completed', 56000, 'owed'], 'the technician is owed their share of ₦70,000 after the one commission');
+  assert.equal((await T1.api('GET', '/installer/repairs/mine')).body.earnings.owed >= 56000, true);
+  assert.equal((await buyer('POST', `/admin/repairs/${R1}/payout-paid`)).status, 403);
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/payout-paid`)).status, 200);
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/payout-paid`)).status, 409, 'a payout is recorded once');
+  assert.equal((await buyer('POST', `/repairs/${R1}/review`, { rating: 6 })).status, 400);
+  assert.equal((await buyer('POST', `/repairs/${R1}/review`, { rating: 5, comment: 'Quick, tidy and explained everything.' })).status, 201);
+  assert.equal((await buyer('POST', `/repairs/${R1}/review`, { rating: 1 })).status, 409, 'one review per repair');
+  assert.equal((await cust3('POST', `/repairs/${R1}/review`, { rating: 1 })).status, 404);
+  const mine = (await T1.api('GET', '/installer/repairs/mine')).body;
+  assert.deepEqual([mine.rating.average, mine.rating.count], [5, 1]);
+  const cand = await (await import('../src/models/repairs.js')).repairsModel.candidates();
+  assert.equal(cand.find((c) => c.id === T1.id).rating, 5, 'the review now counts in the ranking');
+  assert.ok(JSON.stringify((await buyer('GET', `/repairs/${R1}`)).body.request.timeline.map((t) => t.type)).includes('confirmed'));
+  step('finish needs a picture; customer confirms (twice is harmless); payout ₦56,000 owed then recorded once by the admin; review once, 1–5, and it feeds the ranking');
+
+  // no payment needed when the call-out fee already covers the estimate; auto-confirm after the set time
+  const R8 = await quick(4000);
+  const free = await buyer('POST', `/repairs/${R8}/approve-quote`);
+  assert.deepEqual([free.status, free.body.approved], [201, true]);
+  const f8 = await row(R8);
+  assert.deepEqual([f8.status, Number(f8.agreed_total)], ['approved', 5000], 'the visit fee is the minimum job value');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R8}/start`)).status, 200);
+  await finish(R8);
+  assert.equal((await repairsService.housekeeping()).autoConfirmed >= 0, true);
+  assert.equal((await row(R8)).status, 'repair_done', 'not closed before its time');
+  await query('UPDATE repair_requests SET confirm_due_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE public_ref = ?', [R8]);
+  assert.equal((await repairsService.housekeeping()).autoConfirmed >= 1, true);
+  assert.equal((await repairsService.housekeeping()).autoConfirmed, 0, 'and only once');
+  const c8 = await row(R8);
+  assert.deepEqual([c8.status, Number(c8.payout_amount), c8.payout_status], ['completed', 4000, 'owed']);
+  assert.ok(mails.some((m) => m.includes(`Repair closed · ${R8}`)));
+  step('an estimate the call-out fee covers needs no payment; a repair the customer ignores closes by itself after the set time and the payout is recorded once');
+
+  // a reported problem stops the automatic close; the admin sorts it out
+  const R9 = await quick(4000);
+  await buyer('POST', `/repairs/${R9}/approve-quote`);
+  await T1.api('POST', `/installer/repairs/${R9}/start`);
+  await finish(R9);
+  assert.equal((await buyer('POST', `/repairs/${R9}/problem`, { note: 'bad' })).status, 400);
+  assert.equal((await cust3('POST', `/repairs/${R9}/problem`, { note: 'The inverter still trips every evening.' })).status, 404);
+  assert.equal((await buyer('POST', `/repairs/${R9}/problem`, { note: 'The inverter still trips every evening.' })).status, 200);
+  assert.equal((await buyer('POST', `/repairs/${R9}/problem`, { note: 'The inverter still trips every evening.' })).status, 409, 'once');
+  assert.ok(mails.some((m) => m.includes(`PROBLEM REPORTED · ${R9}`)));
+  await query("UPDATE repair_requests SET confirm_due_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE public_ref = ?", [R9]);
+  await repairsService.housekeeping();
+  assert.equal((await row(R9)).status, 'repair_done', 'a reported problem is never closed automatically');
+  assert.equal((await admin('GET', '/admin/repairs?status=needs_action')).body.requests.some((r) => r.ref === R9), true);
+  assert.equal((await buyer('POST', `/admin/repairs/${R9}/confirm`)).status, 403);
+  assert.equal((await admin('POST', `/admin/repairs/${R9}/confirm`)).status, 200);
+  assert.equal((await row(R9)).status, 'completed');
+  // admin cancels a paid repair: everything paid goes back, no payout
+  const R10 = await quick(30000);
+  const a10 = await buyer('POST', `/repairs/${R10}/approve-quote`);
+  await buyer('POST', '/repairs/mock-pay', { reference: a10.body.reference });
+  await T1.api('POST', `/installer/repairs/${R10}/start`);
+  assert.equal((await buyer('POST', `/repairs/${R10}/cancel`)).status, 409, 'once the repair has started the customer cannot cancel here');
+  assert.equal((await admin('POST', `/admin/repairs/${R10}/cancel`, { reason: 'Dispute settled: refund in full' })).status, 200);
+  const x10 = await row(R10);
+  assert.deepEqual([x10.status, Number(x10.refund_amount), Number(x10.refund_needed), Number(x10.payout_amount)], ['cancelled', 30000, 1, 0], 'the whole ₦30,000 paid is refunded');
+  step('a reported problem blocks the automatic close and reaches the admin, who closes it; an admin cancel mid-repair refunds everything paid');
+
+  // declining the estimate, cancelling after approval, no-shows
+  const R11 = await quick(20000);
+  assert.equal((await cust3('POST', `/repairs/${R11}/decline-quote`)).status, 404);
+  assert.equal((await buyer('POST', `/repairs/${R11}/decline-quote`)).status, 200);
+  const d11 = await row(R11);
+  assert.deepEqual([d11.status, Number(d11.refund_amount), Number(d11.payout_amount), d11.payout_status], ['cancelled', 0, 4000, 'owed'], 'the visit is kept: nothing refunded, the technician earns their share of the call-out fee');
+  const R12 = await quick(20000);
+  const a12 = await buyer('POST', `/repairs/${R12}/approve-quote`);
+  await buyer('POST', '/repairs/mock-pay', { reference: a12.body.reference });
+  const x12 = await buyer('POST', `/repairs/${R12}/cancel`);
+  assert.deepEqual([x12.status, x12.body.refund], [200, 15000], 'cancelled before the repair started: only the repair payment comes back');
+  const c12 = await row(R12);
+  assert.deepEqual([Number(c12.payout_amount), c12.payout_status], [4000, 'owed']);
+  const R13 = await toAssigned();
+  await T1.api('POST', `/installer/repairs/${R13}/on-my-way`);
+  assert.equal((await buyer('POST', `/repairs/${R13}/no-show`)).status, 409, 'too early to call it a no-show');
+  assert.equal((await cust3('POST', `/repairs/${R13}/no-show`)).status, 404);
+  await query('UPDATE repair_requests SET on_the_way_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 4 HOUR) WHERE public_ref = ?', [R13]);
+  const ns = await buyer('POST', `/repairs/${R13}/no-show`);
+  assert.deepEqual([ns.status, ns.body.refund], [200, 5000], 'a no-show refunds the whole call-out fee');
+  assert.equal((await buyer('POST', `/repairs/${R13}/no-show`)).status, 409);
+  assert.ok(mails.some((m) => m.includes(`REFUND NEEDED · ${R13}`)));
+  step('declining the estimate keeps the visit fee (technician paid); cancelling after approval refunds the repair payment; a no-show refunds in full');
 }
 
 server.close();

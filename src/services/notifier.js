@@ -294,6 +294,30 @@ export function createNotifier({ mailer, config, tokens, now = () => new Date() 
         button: { label: 'See the estimate', url: link(`/app/repairs/${request.ref}`) },
       });
     },
+    async repair_approved({ request, technician, earn }) {
+      if (technician?.email) await send(technician.email, { subject: `Estimate approved and paid · ${request.ref}`, heading: 'You can start the repair', lines: [`The customer approved your estimate and paid it inside TerraVoltix. You earn ${naira(earn)} for the whole job once the customer confirms the repair.`, 'Open the job and tap "Start repair" when you begin.'], button: { label: 'Open the job', url: link('/app/repair-jobs') } });
+    },
+    async repair_quote_declined({ request, technician, earn }) {
+      if (technician?.email) await send(technician.email, { subject: `Customer did not go ahead · ${request.ref}`, heading: 'The customer declined the estimate', lines: [`You are still paid for the visit: ${naira(earn)}.`], button: { label: 'Open your jobs', url: link('/app/repair-jobs') } });
+    },
+    async repair_variation({ request, customer, extra, reason }) {
+      await send(customer.email, { subject: `Change to your repair estimate · ${request.ref}`, heading: 'The technician found more to do', lines: [`Hi ${customer.fullName}, the technician asks for ${naira(extra)} more: ${reason}`, 'Nothing changes unless you approve it. Pay only inside TerraVoltix.'], button: { label: 'Review the change', url: link(`/app/repairs/${request.ref}`) } });
+    },
+    async repair_variation_decided({ request, technician, approved, extra }) {
+      if (technician?.email) await send(technician.email, { subject: `Revised estimate ${approved ? 'approved' : 'declined'} · ${request.ref}`, heading: approved ? 'The customer approved the change' : 'The customer declined the change', lines: [approved ? `The extra ${naira(extra)} is paid. Carry on with the revised work.` : 'Continue with the work as originally quoted.'], button: { label: 'Open the job', url: link('/app/repair-jobs') } });
+    },
+    async repair_awaiting_parts({ request, customer, note }) {
+      await send(customer.email, { subject: `Waiting for parts · ${request.ref}`, heading: 'Your repair is waiting for parts', lines: [`Hi ${customer.fullName}, the technician is waiting for parts: ${note}`, 'You will hear from us when work continues.'], button: { label: 'Track your repair', url: link(`/app/repairs/${request.ref}`) } });
+    },
+    async repair_done({ request, customer, hours }) {
+      await send(customer.email, { subject: `Your repair is finished · ${request.ref}`, heading: 'Please check the repair', lines: [`Hi ${customer.fullName}, the technician says the work is finished.`, `Please check it and confirm. If you do nothing, it closes by itself in ${hours} hours. If something is wrong, tell us before then.`], button: { label: 'Check and confirm', url: link(`/app/repairs/${request.ref}`) } });
+    },
+    async repair_completed({ request, technician, earn, auto }) {
+      if (technician?.email) await send(technician.email, { subject: `Repair closed · ${request.ref}`, heading: 'The repair is complete', lines: [`${auto ? 'The customer did not reply in time, so it closed automatically.' : 'The customer confirmed the repair.'} Your payout of ${naira(earn)} will be sent soon.`], button: { label: 'Open your jobs', url: link('/app/repair-jobs') } });
+    },
+    async repair_problem({ request, note, customer }) {
+      await send(adminEmail, { subject: `PROBLEM REPORTED · ${request.ref}`, heading: `${customer?.name ?? 'The customer'} reported a problem`, lines: [note, 'The automatic close is stopped. Talk to both sides, then close the repair or cancel and refund.'], button: { label: 'Open repairs', url: link('/app/admin-repairs') } });
+    },
     async repair_cancelled({ request, refund, reason, customer, technician }) {
       await send(customer.email, { subject: `Repair cancelled · ${request.ref}`, heading: 'Your repair request was cancelled', lines: [`${reason ? `Reason: ${reason}. ` : ''}You will be refunded ${naira(refund)}.`] });
       await send(adminEmail, { subject: `REFUND NEEDED · ${request.ref}`, heading: `Refund needed for ${request.ref}`, lines: [`Refund ${naira(refund)} to ${customer.fullName}.`], button: { label: 'Open repairs', url: link('/app/admin-repairs') } });

@@ -3,7 +3,7 @@ import * as c from '../controllers/repairs.controller.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { checkoutLimiter, orderActionLimiter, payVerifyLimiter, shopLimiter } from '../middleware/rateLimits.js';
 import { validate } from '../middleware/validate.js';
-import { createRepairSchema } from '../validators/repairs.schemas.js';
+import { createRepairSchema, problemSchema, reviewSchema } from '../validators/repairs.schemas.js';
 import { verifySchema } from '../validators/orders.schemas.js';
 import { MAX_IMAGE_BYTES } from '../utils/images.js';
 
@@ -22,5 +22,13 @@ router.delete('/:ref/photos/:id', orderActionLimiter, c.removePhoto);
 router.get('/:ref/photos/:id', c.photo);
 router.post('/:ref/pay', checkoutLimiter, c.pay);
 router.post('/:ref/cancel', orderActionLimiter, c.cancel);
+router.post('/:ref/approve-quote', checkoutLimiter, c.approveQuote);
+router.post('/:ref/decline-quote', orderActionLimiter, c.declineQuote);
+router.post('/:ref/variations/:id/approve', checkoutLimiter, c.approveVariation);
+router.post('/:ref/variations/:id/decline', orderActionLimiter, c.declineVariation);
+router.post('/:ref/confirm', orderActionLimiter, c.confirm);
+router.post('/:ref/problem', orderActionLimiter, validate(problemSchema), c.problem);
+router.post('/:ref/review', orderActionLimiter, validate(reviewSchema), c.review);
+router.post('/:ref/no-show', orderActionLimiter, c.noShow);
 
 export default router;

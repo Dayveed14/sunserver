@@ -32,6 +32,14 @@ export const pay = asyncHandler(async (req, res) => res.status(201).json(await s
 export const verify = asyncHandler(async (req, res) => res.json(await svc.verifyAndSettle(req.user, req.valid.reference)));
 export const mockPay = asyncHandler(async (req, res) => res.json(await svc.mockPay(req.user, req.valid.reference)));
 export const cancel = asyncHandler(async (req, res) => res.json(await svc.cancel(req.user, req.params.ref)));
+export const approveQuote = asyncHandler(async (req, res) => res.status(201).json(await svc.approveQuote(req.user, req.params.ref)));
+export const declineQuote = asyncHandler(async (req, res) => res.json(await svc.declineQuote(req.user, req.params.ref)));
+export const approveVariation = asyncHandler(async (req, res) => res.status(201).json(await svc.approveVariation(req.user, req.params.ref, numId(req.params.id))));
+export const declineVariation = asyncHandler(async (req, res) => res.json(await svc.declineVariation(req.user, req.params.ref, numId(req.params.id))));
+export const confirm = asyncHandler(async (req, res) => res.json(await svc.confirm(req.user, req.params.ref)));
+export const problem = asyncHandler(async (req, res) => res.json(await svc.reportProblem(req.user, req.params.ref, req.valid.note)));
+export const review = asyncHandler(async (req, res) => res.status(201).json(await svc.review(req.user, req.params.ref, req.valid)));
+export const noShow = asyncHandler(async (req, res) => res.json(await svc.noShow(req.user, req.params.ref)));
 
 // ---- technician ----
 export const offers = asyncHandler(async (req, res) => res.json(await svc.offers(req.user)));
@@ -44,10 +52,18 @@ export const arrived = asyncHandler(async (req, res) => res.json(await svc.arriv
 export const techAddPhoto = asyncHandler(async (req, res) => res.status(201).json(await svc.addInspectionPhoto(req.user, req.params.ref, body(req))));
 export const techRemovePhoto = asyncHandler(async (req, res) => res.json(await svc.removeInspectionPhoto(req.user, req.params.ref, numId(req.params.id))));
 export const report = asyncHandler(async (req, res) => res.json(await svc.report(req.user, req.params.ref, req.valid)));
+export const startRepair = asyncHandler(async (req, res) => res.json(await svc.startRepair(req.user, req.params.ref)));
+export const awaitingParts = asyncHandler(async (req, res) => res.json(await svc.awaitingParts(req.user, req.params.ref, req.valid.note)));
+export const partsArrived = asyncHandler(async (req, res) => res.json(await svc.partsArrived(req.user, req.params.ref)));
+export const proposeVariation = asyncHandler(async (req, res) => res.status(201).json(await svc.proposeVariation(req.user, req.params.ref, req.valid)));
+export const withdrawVariation = asyncHandler(async (req, res) => res.json(await svc.withdrawVariation(req.user, req.params.ref, numId(req.params.id))));
+export const completionAddPhoto = asyncHandler(async (req, res) => res.status(201).json(await svc.addCompletionPhoto(req.user, req.params.ref, body(req))));
+export const completionRemovePhoto = asyncHandler(async (req, res) => res.json(await svc.removeCompletionPhoto(req.user, req.params.ref, numId(req.params.id))));
+export const complete = asyncHandler(async (req, res) => res.json(await svc.complete(req.user, req.params.ref, req.valid.summary)));
 
 // ---- admin ----
 export const adminList = asyncHandler(async (req, res) => {
-  const status = ['finding', 'assigned', 'on_the_way', 'on_site', 'inspected', 'cancelled', 'awaiting_payment'].includes(req.query.status) ? req.query.status : undefined;
+  const status = ['finding', 'assigned', 'on_the_way', 'on_site', 'inspected', 'approved', 'in_repair', 'awaiting_parts', 'repair_done', 'completed', 'cancelled', 'awaiting_payment'].includes(req.query.status) ? req.query.status : undefined;
   res.json(await svc.adminList({ status, needsAction: req.query.status === 'needs_action' }));
 });
 export const adminGet = asyncHandler(async (req, res) => res.json(await svc.adminGet(req.params.ref)));
@@ -56,3 +72,5 @@ export const adminDecline = asyncHandler(async (req, res) => res.json(await svc.
 export const adminAssign = asyncHandler(async (req, res) => res.json(await svc.assign(req.user.id, req.params.ref, req.valid.technicianId, audit)));
 export const adminCancel = asyncHandler(async (req, res) => res.json(await svc.adminCancel(req.user.id, req.params.ref, req.valid.reason, audit)));
 export const adminRefunded = asyncHandler(async (req, res) => res.json(await svc.adminRefunded(req.user.id, req.params.ref, audit)));
+export const adminConfirm = asyncHandler(async (req, res) => res.json(await svc.adminConfirm(req.user.id, req.params.ref, audit)));
+export const adminPayoutPaid = asyncHandler(async (req, res) => res.json(await svc.adminPayoutPaid(req.user.id, req.params.ref, audit)));

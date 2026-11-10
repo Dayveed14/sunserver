@@ -16,5 +16,7 @@ router.post('/:ref/decline', c.adminDecline);
 router.post('/:ref/assign', validate(assignTechnicianSchema), c.adminAssign);
 router.post('/:ref/cancel', validate(repairCancelSchema), c.adminCancel);
 router.post('/:ref/refunded', c.adminRefunded);
+router.post('/:ref/confirm', c.adminConfirm);
+router.post('/:ref/payout-paid', c.adminPayoutPaid);
 
 export default router;

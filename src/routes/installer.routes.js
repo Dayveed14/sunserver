@@ -6,7 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { requireVerifiedInstaller } from '../middleware/installerGate.js';
 import * as j from '../controllers/installations.controller.js';
 import * as rp from '../controllers/repairs.controller.js';
-import { repairReportSchema } from '../validators/repairs.schemas.js';
+import { completeSchema, partsNoteSchema, repairReportSchema, variationSchema } from '../validators/repairs.schemas.js';
 import { MAX_IMAGE_BYTES } from '../utils/images.js';
 import { acceptJobSchema } from '../validators/installations.schemas.js';
 import { quizSchema } from '../validators/verification.schemas.js';
@@ -53,5 +53,13 @@ router.post('/repairs/:ref/photos', express.raw({ type: ['image/jpeg', 'image/pn
 router.delete('/repairs/:ref/photos/:id', rp.techRemovePhoto);
 router.get('/repairs/:ref/photos/:id', rp.photo);
 router.post('/repairs/:ref/report', validate(repairReportSchema), rp.report);
+router.post('/repairs/:ref/start', rp.startRepair);
+router.post('/repairs/:ref/awaiting-parts', validate(partsNoteSchema), rp.awaitingParts);
+router.post('/repairs/:ref/parts-arrived', rp.partsArrived);
+router.post('/repairs/:ref/variations', validate(variationSchema), rp.proposeVariation);
+router.post('/repairs/:ref/variations/:id/withdraw', rp.withdrawVariation);
+router.post('/repairs/:ref/completion-photos', express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_IMAGE_BYTES }), rp.completionAddPhoto);
+router.delete('/repairs/:ref/completion-photos/:id', rp.completionRemovePhoto);
+router.post('/repairs/:ref/complete', validate(completeSchema), rp.complete);
 
 export default router;

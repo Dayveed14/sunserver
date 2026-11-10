@@ -10,7 +10,8 @@ export const REPAIR_RULES = {
   commissionPct: 0.2, // TerraVoltix's share of both the call-out fee and the repair
   adminMinutes: 30, // the admin has this long to act on a recommendation before it is approved automatically
   technicianMinutes: 60, // a technician has this long to answer an offer before it moves to the next one
-  confirmHours: 48, // used in part B: the customer has this long to confirm a finished repair
+  confirmHours: 48, // the customer has this long to confirm a finished repair before it closes by itself
+  noShowHours: 3, // a technician who has not arrived this long after "on my way" counts as a no-show (full refund)
 };
 
 export const FEE_BANDS = [
@@ -45,6 +46,7 @@ export const URGENCY = [
 ];
 export const MAX_FAULT_PHOTOS = 4;
 export const MAX_INSPECTION_PHOTOS = 6;
+export const MAX_COMPLETION_PHOTOS = 6;
 
 // A short notice shown at every payment step.
 export const PAY_IN_APP_NOTICE = 'Pay only inside TerraVoltix. If you pay a technician directly, we cannot protect your money or help if something goes wrong.';

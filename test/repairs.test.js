@@ -60,3 +60,14 @@ test('settings: the repair numbers are editable and checked (distances must incr
   assert.equal(reg.current().repairFeeNear, 6500);
   assert.equal(reg.current().repairAdminMinutes, 10);
 });
+
+test('part B: the no-show window is a setting, with a sane range', () => {
+  assert.equal(REPAIR_RULES.noShowHours, 3);
+  const rules = structuredClone(REPAIR_RULES);
+  const reg = createSettingsRegistry({ assumptions: structuredClone(ASSUMPTIONS), eaasRules: structuredClone(EAAS_RULES), repairRules: rules });
+  const values = reg.current();
+  assert.equal(values.repairNoShowHours, 3);
+  assert.ok(reg.validate({ ...values, repairNoShowHours: 0 }).repairNoShowHours);
+  reg.apply({ ...values, repairNoShowHours: 5 });
+  assert.equal(rules.noShowHours, 5);
+});
