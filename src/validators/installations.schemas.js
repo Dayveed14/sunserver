@@ -15,3 +15,7 @@ export const createInstallSchema = z.object({
 });
 export const acceptJobSchema = z.object({ confirmAvailable: z.boolean() });
 export const cancelInstallSchema = z.object({ reason: z.string().trim().min(3, 'Say why').max(300) });
+export const completeInstallSchema = z.object({ summary: z.string().trim().min(10, 'Say what you installed (at least a sentence)').max(2000) }).strict();
+export const installProblemSchema = z.object({ note: z.string().trim().min(10, 'Tell us what is wrong (at least a sentence)').max(500) }).strict();
+export const installReviewSchema = z.object({ rating: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional() }).strict();
+export const assignInstallerSchema = z.object({ installerId: z.number().int().positive() }).strict();

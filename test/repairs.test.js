@@ -4,6 +4,7 @@ import { REPAIR_RULES, bandFor, feeFor, rankTechnicians, technicianShare } from 
 import { createSettingsRegistry } from '../src/utils/settingsRegistry.js';
 import { ASSUMPTIONS } from '../src/utils/pricing.js';
 import { EAAS_RULES } from '../src/utils/eaas.js';
+import { INSTALL_RULES } from '../src/utils/installRules.js';
 
 const cust = { state: 'lagos', areaId: 'yaba' };
 const tech = (id, o = {}) => ({ id, state: 'lagos', areaId: 'yaba', travelKm: 25, capacity: 2, activeJobs: 0, completedJobs: 0, rating: null, yearsExperience: 4, responseTime: '4h', ...o });
@@ -70,4 +71,15 @@ test('part B: the no-show window is a setting, with a sane range', () => {
   assert.ok(reg.validate({ ...values, repairNoShowHours: 0 }).repairNoShowHours);
   reg.apply({ ...values, repairNoShowHours: 5 });
   assert.equal(rules.noShowHours, 5);
+});
+
+test('phase 5: the installation matching waits are settings with sane ranges', () => {
+  const rules = structuredClone(INSTALL_RULES);
+  assert.deepEqual([rules.adminMinutes, rules.installerMinutes, rules.noShowHours], [30, 120, 3]);
+  const reg = createSettingsRegistry({ assumptions: structuredClone(ASSUMPTIONS), eaasRules: structuredClone(EAAS_RULES), repairRules: structuredClone(REPAIR_RULES), installRules: rules });
+  const values = reg.current();
+  assert.equal(values.installAdminMinutes, 30);
+  assert.ok(reg.validate({ ...values, installNoShowHours: 0 }).installNoShowHours);
+  reg.apply({ ...values, installOfferMinutes: 90 });
+  assert.equal(rules.installerMinutes, 90);
 });

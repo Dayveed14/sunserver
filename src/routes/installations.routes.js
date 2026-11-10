@@ -3,7 +3,7 @@ import * as c from '../controllers/installations.controller.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { checkoutLimiter, orderActionLimiter, payVerifyLimiter, shopLimiter } from '../middleware/rateLimits.js';
 import { validate } from '../middleware/validate.js';
-import { createInstallSchema } from '../validators/installations.schemas.js';
+import { createInstallSchema, installProblemSchema, installReviewSchema } from '../validators/installations.schemas.js';
 import { verifySchema } from '../validators/orders.schemas.js';
 
 // Mounted at /api/installations: a customer asks for an installer, pays, and follows the job.
@@ -19,5 +19,9 @@ router.get('/:ref', c.get);
 router.post('/:ref/pay', checkoutLimiter, c.pay);
 router.post('/:ref/cancel', orderActionLimiter, c.cancel);
 router.post('/:ref/confirm', orderActionLimiter, c.confirm);
+router.post('/:ref/no-show', orderActionLimiter, c.noShow);
+router.post('/:ref/problem', orderActionLimiter, validate(installProblemSchema), c.problem);
+router.post('/:ref/review', orderActionLimiter, validate(installReviewSchema), c.review);
+router.get('/:ref/photos/:id', c.photo);
 
 export default router;

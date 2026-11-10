@@ -145,11 +145,11 @@ export const repairsModel = {
   async candidates() {
     const rows = await query(
       `SELECT u.id, u.email, u.full_name, a.state, a.area_id, i.travel_km, i.capacity, i.response_time, i.years_experience,
-              (SELECT COUNT(*) FROM install_requests x WHERE x.installer_id = u.id AND x.status IN ('assigned','installer_done')) +
+              (SELECT COUNT(*) FROM install_requests x WHERE x.installer_id = u.id AND x.status IN ('assigned','on_the_way','on_site','in_progress','installer_done')) +
               (SELECT COUNT(*) FROM repair_requests y WHERE y.technician_id = u.id AND y.status IN ${ACTIVE}) AS active_jobs,
               (SELECT COUNT(*) FROM install_requests x WHERE x.installer_id = u.id AND x.status = 'completed') +
               (SELECT COUNT(*) FROM repair_requests y WHERE y.technician_id = u.id AND y.status = 'completed') AS completed_jobs,
-              (SELECT AVG(v.rating) FROM repair_reviews v WHERE v.technician_id = u.id) AS rating
+              (SELECT AVG(v.rating) FROM (SELECT technician_id, rating FROM repair_reviews UNION ALL SELECT installer_id, rating FROM install_reviews) v WHERE v.technician_id = u.id) AS rating
        FROM users u
        JOIN installer_profiles i ON i.user_id = u.id AND i.verification_status = 'verified' AND i.accepts_repairs = 1
        JOIN addresses a ON a.user_id = u.id

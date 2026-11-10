@@ -137,4 +137,23 @@ export async function migrate(conn, database = 'solalium') {
     await conn.query("ALTER TABLE repair_photos MODIFY COLUMN kind ENUM('fault','inspection','completion') NOT NULL");
     console.log('Migrated: repair_photos.kind now accepts completion pictures.');
   }
+  // Phase 5 (installations like repairs): more statuses, visit steps, problems, amounts.
+  const [instStatus] = await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'install_requests' AND column_name = 'status'", [database]);
+  if (instStatus[0] && !instStatus[0].t.includes("'finding'")) {
+    await conn.query("ALTER TABLE install_requests MODIFY COLUMN status ENUM('quote','awaiting_payment','open','finding','assigned','on_the_way','on_site','in_progress','installer_done','completed','cancelled') NOT NULL DEFAULT 'quote'");
+    await conn.query("UPDATE install_requests SET status = 'finding' WHERE status = 'open'");
+    console.log('Migrated: install_requests has the repair-style statuses; open jobs are now "finding".');
+  }
+  const hadPayoutAmount = await hasColumn('install_requests', 'payout_amount');
+  await addColumn('install_requests', 'payout_amount', 'INT UNSIGNED NOT NULL DEFAULT 0');
+  await addColumn('install_requests', 'refund_amount', 'INT UNSIGNED NOT NULL DEFAULT 0');
+  await addColumn('install_requests', 'on_the_way_at', 'DATETIME NULL');
+  await addColumn('install_requests', 'arrived_at', 'DATETIME NULL');
+  await addColumn('install_requests', 'started_at', 'DATETIME NULL');
+  await addColumn('install_requests', 'problem_at', 'DATETIME NULL');
+  await addColumn('install_requests', 'problem_note', 'VARCHAR(500) NULL');
+  if (!hadPayoutAmount) {
+    await conn.query('UPDATE install_requests SET payout_amount = installer_payout');
+    await conn.query('UPDATE install_requests SET refund_amount = price WHERE refund_needed = 1');
+  }
 }

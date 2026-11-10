@@ -152,7 +152,7 @@ export const installerRegistrationService = createInstallerRegistrationService({
 
 // INSTALL_RULES is the live object the admin's Pricing page edits, so a new price applies to the next quote.
 export const installationsService = createInstallationsService({
-  model: installationsModel, paystack, notifier, usersModel, rules: INSTALL_RULES,
+  model: installationsModel, paystack, notifier, usersModel, cloudinary, rules: INSTALL_RULES,
   config: { callbackUrl: `${clientUrl}/installation/return` },
 });
 

@@ -15,7 +15,11 @@ export const INSTALL_RULES = {
   payoutPct: 0.7, // share of the fee the installer earns
   alertMinutes: 120, // nobody accepted after this long: the admin is alerted
   autoCloseHours: 12, // the customer did not confirm: the job closes by itself after this long
+  adminMinutes: 30, // the admin has this long to act on a recommended installer before it is approved automatically
+  installerMinutes: 120, // an installer has this long to answer an offer before it moves to the next one
+  noShowHours: 3, // an installer who has not arrived this long after "on my way" counts as a no-show (full refund)
 };
+export const MAX_INSTALL_PHOTOS = 6; // before pictures, and again after pictures
 
 export function bandFor(kw, rules = INSTALL_RULES) {
   const n = Number(kw);

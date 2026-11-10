@@ -489,22 +489,25 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   step(`installer registered in five steps (skills check ${detail.body.quiz.score}/${detail.body.quiz.total} for the admin only), admin phoned both references, approved; older installers unaffected`);
 }
 
-// ---------- installation requests: quote, pay, broadcast, first-accept, finish, confirm, payout ----------
+// ---------- installations (phase 5): quote, pay, ranked matching, admin approval, steps, photos, completion report, confirm, review, cancellation ----------
 {
   // Earlier test runs left approved installers behind; stand them down so only this run's installers are in play.
-  await query("UPDATE installer_profiles ip JOIN users u ON u.id = ip.user_id SET ip.verification_status = 'pending' WHERE u.email LIKE 'e2e-%@example.test'");
-  const mk = async (name, key, extra = {}) => {
+  await query("UPDATE installer_profiles SET verification_status = 'pending' WHERE verification_status = 'verified'");
+  const mk = async (name, key, extra = {}, prof = {}) => {
     const email = `e2e-${key}-${stamp}@example.test`;
     const api = await signUp('installer', name, email, extra);
     const [row] = await query("SELECT id FROM users WHERE email = ? AND role = 'installer'", [email]);
-    if (!extra.unverified) await query("UPDATE installer_profiles SET verification_status = 'verified', quiz_submitted_at = UTC_TIMESTAMP() WHERE user_id = ?", [row.id]);
-    return { api, id: Number(row.id), email };
+    await query('UPDATE installer_profiles SET verification_status = ?, quiz_submitted_at = UTC_TIMESTAMP(), travel_km = ?, capacity = ?, response_time = ?, years_experience = ? WHERE user_id = ?',
+      [extra.unverified ? 'pending' : 'verified', prof.km ?? 25, prof.cap ?? 5, prof.resp ?? '4h', prof.yrs ?? 4, row.id]);
+    return { api, id: Number(row.id), email, name };
   };
-  const instA = await mk('Ade Installer', 'ia');
-  const instB = await mk('Bayo Installer', 'ib');
+  const instA = await mk('Ade Installer', 'ia', { areaId: 'yaba' }, { yrs: 9, resp: '1h' });
+  const instB = await mk('Bayo Installer', 'ib', { areaId: 'lekki-phase-1' }, { yrs: 3 });
+  const instFar = await mk('Short Range Installer', 'ifar', { areaId: 'ikeja' }, { km: 10 });
   const instAbuja = await mk('Abuja Installer', 'iab', { state: 'abuja', areaId: 'wuse' });
-  const instNew = await mk('New Installer', 'inew', { unverified: true });
+  const instNew = await mk('New Installer', 'inew', { unverified: true, areaId: 'yaba' });
   const cust2 = await signUp('individual', 'Other Customer', `e2e-cust2-${stamp}@example.test`, { areaId: 'yaba' });
+  const byId = (id) => [instA, instB, instFar, instAbuja].find((i) => i.id === id);
 
   const bands = await client()('GET', '/installations/bands');
   assert.equal(bands.status, 200);
@@ -526,7 +529,6 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.deepEqual((await instA.api('GET', '/installer/jobs')).body.jobs, [], 'unpaid jobs are not sent out');
   step('a 4 kW request is priced from the size bands (₦110,000); bad sizes, dates and roles are refused');
 
-  // the admin changes a band price: the next quote uses it, the old one is fixed
   assert.equal((await admin('PUT', '/admin/settings', { changes: { installPriceB3: 120000 } })).status, 200);
   const made2 = await buyer('POST', '/installations', body);
   assert.equal(made2.body.request.price, 120000);
@@ -535,124 +537,262 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal((await buyer('POST', `/installations/${made2.body.request.ref}/cancel`)).status, 200, 'an unpaid request can be cancelled');
   step('admin band price change applies to new quotes only');
 
-  // pay: four taps, one payment
+  const pay = async (r) => {
+    const p = await buyer('POST', `/installations/${r}/pay`);
+    assert.equal(p.status, 201, JSON.stringify(p.body));
+    const m = await buyer('POST', '/installations/mock-pay', { reference: p.body.reference });
+    assert.equal(m.status, 200, JSON.stringify(m.body));
+  };
+  const newPaidJob = async (extra = {}) => {
+    const m = await buyer('POST', '/installations', { ...body, ...extra });
+    await pay(m.body.request.ref);
+    return m.body.request.ref;
+  };
+  const row = async (r) => (await query('SELECT * FROM install_requests WHERE public_ref = ?', [r]))[0];
+  const matchesOf = async (r) => query('SELECT m.*, u.full_name FROM install_matches m JOIN users u ON u.id = m.installer_id JOIN install_requests q ON q.id = m.request_id WHERE q.public_ref = ? ORDER BY m.rank_no', [r]);
+  const upload = (who, r, kind, data = png) => who.api('POST', `/installer/jobs/${r}/photos/${kind}`, null, {}, { type: 'image/png', data });
+  // takes a job through offer → accept; returns the installer who has it
+  const offerAndAccept = async (r) => {
+    const rec = (await matchesOf(r)).find((m) => m.status === 'recommended');
+    assert.ok(rec, 'a recommendation is waiting');
+    assert.equal((await admin('POST', `/admin/installations/${r}/approve`)).status, 200);
+    const who = byId(Number(rec.installer_id));
+    assert.equal((await who.api('POST', `/installer/jobs/${r}/accept`, { confirmAvailable: true })).status, 200);
+    return who;
+  };
+
+  // pay: four taps, one payment; six simultaneous confirmations, one matching run
   const taps = await Promise.all([1, 2, 3, 4].map(() => buyer('POST', `/installations/${ref}/pay`)));
   assert.ok(taps.every((t) => t.status === 201), JSON.stringify(taps.map((t) => t.body)));
   assert.equal(new Set(taps.map((t) => t.body.reference)).size, 1);
   const payRef = taps[0].body.reference;
   assert.ok(payRef.startsWith('IP-'));
-  assert.equal((await cust2('POST', `/installations/mock-pay`, { reference: payRef })).status, 404);
-  const paid = await Promise.all([1, 2, 3, 4, 5, 6].map(() => buyer('POST', `/installations/mock-pay`, { reference: payRef })));
+  assert.equal((await cust2('POST', '/installations/mock-pay', { reference: payRef })).status, 404);
+  const paid = await Promise.all([1, 2, 3, 4, 5, 6].map(() => buyer('POST', '/installations/mock-pay', { reference: payRef })));
   assert.ok(paid.every((p) => p.status === 200 && p.body.status === 'paid'), JSON.stringify(paid.map((p) => p.body)));
-  const [{ n: offerCount }] = await query('SELECT COUNT(*) AS n FROM install_offers o JOIN install_requests r ON r.id = o.request_id WHERE r.public_ref = ?', [ref]);
-  assert.equal(Number(offerCount), 2, 'sent once to each approved Lagos installer, however many payment reports arrived');
-  assert.equal(mails.filter((m) => m.includes('New installation job')).length >= 2, true);
-  step('4 taps = 1 payment; 6 simultaneous confirmations opened the job once and sent it to the 2 approved Lagos installers');
+  assert.equal((await row(ref)).status, 'finding');
+  const ms = await matchesOf(ref);
+  assert.deepEqual(ms.map((m) => [Number(m.installer_id), m.status]), [[instA.id, 'recommended'], [instB.id, 'queued']], 'ranked list: the near, experienced installer first; short-range, other-state and unapproved ones are not on it');
+  assert.ok(mails.some((m) => m.includes(`Installation ${ref}: approve`)), 'the admin is asked to approve the first one');
+  assert.equal((await query('SELECT COUNT(*) AS n FROM install_offers o JOIN install_requests r ON r.id = o.request_id WHERE r.public_ref = ?', [ref]))[0].n, 0, 'nothing is broadcast any more');
+  assert.deepEqual((await instA.api('GET', '/installer/jobs')).body.jobs, [], 'nothing reaches the installer until the admin approves');
+  step('4 taps = 1 payment; 6 simultaneous confirmations ranked the installers once; the admin is asked to approve the best one, nothing is broadcast');
 
-  // what an installer sees before accepting: no address, no customer phone
+  // admin
+  assert.equal((await buyer('GET', '/admin/installations')).status, 403);
+  const needs = await admin('GET', '/admin/installations?needsAction=1');
+  assert.ok(needs.body.requests.some((x) => x.ref === ref && x.matchState === 'recommended') && needs.body.stats);
+  const adminView = await admin('GET', `/admin/installations/${ref}`);
+  assert.equal(adminView.body.matches.length, 2);
+  assert.ok(adminView.body.choices.length >= 2 && adminView.body.choices[0].score >= adminView.body.choices[1].score);
+  assert.equal((await buyer('POST', `/admin/installations/${ref}/approve`)).status, 403);
+  assert.equal((await admin('POST', `/admin/installations/${ref}/assign`, { installerId: 'x' })).status, 400);
+  step('the admin sees the ranked list and needs-you queue; customers cannot use admin routes');
+
+  // approve → offered
+  const [aRes, aRes2] = await Promise.all([admin('POST', `/admin/installations/${ref}/approve`), admin('POST', `/admin/installations/${ref}/approve`)]);
+  assert.deepEqual([aRes.status, aRes2.status].sort(), [200, 409], 'two approvals at once: one wins');
+  assert.equal((await admin('POST', `/admin/installations/${ref}/approve`)).status, 409, 'nothing left to approve');
   const seen = await instA.api('GET', '/installer/jobs');
   assert.equal(seen.body.jobs.length, 1);
   const seenText = JSON.stringify(seen.body);
-  assert.ok(!seenText.includes('Secret Close') && !seenText.includes('contact') && !seenText.includes('+234'), 'address and phone are hidden before accepting');
+  assert.ok(!seenText.includes('Secret Close') && !seenText.includes('+234'), 'address and phone are hidden before accepting');
   assert.equal(seen.body.jobs[0].pay, 77000);
-  assert.deepEqual((await instAbuja.api('GET', '/installer/jobs')).body.jobs, [], 'installers in another state are not sent the job');
+  assert.ok(seen.body.jobs[0].answerBy);
+  assert.deepEqual((await instB.api('GET', '/installer/jobs')).body.jobs, [], 'only the offered installer sees it');
+  assert.deepEqual((await instAbuja.api('GET', '/installer/jobs')).body.jobs, []);
   assert.equal((await instNew.api('GET', '/installer/jobs')).status, 403, 'an unapproved installer gets no jobs');
-  assert.equal((await instAbuja.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: true })).status, 404);
+  assert.equal((await instB.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: true })).status, 404, 'an installer who was not offered the job cannot take it');
   assert.equal((await instA.api('POST', `/installer/jobs/${ref}/accept`, {})).status, 400);
   assert.equal((await instA.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: false })).status, 400, 'availability must be confirmed');
-  step('installers see the job and pay but not the address; other states and unapproved installers see nothing');
+  assert.ok(mails.some((m) => m.includes('New installation job')));
+  step('the approved installer alone sees the job and the pay, not the address; others are refused');
 
-  // two installers race: exactly one wins
-  const race = await Promise.all([
-    instA.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: true }),
-    instB.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: true }),
-  ]);
-  assert.deepEqual(race.map((r) => r.status).sort(), [200, 409]);
-  const winner = race.find((r) => r.status === 200);
-  const winnerApi = race[0].status === 200 ? instA.api : instB.api;
-  const loserApi = race[0].status === 200 ? instB.api : instA.api;
-  assert.ok(winner.body.job.address.includes('Secret Close'), 'the winner gets the address');
-  assert.equal(winner.body.job.customer.phone.startsWith('+234'), true);
-  assert.deepEqual((await loserApi('GET', '/installer/jobs')).body.jobs, [], 'the job disappears for the installer who lost');
-  assert.equal((await loserApi('GET', `/installer/jobs/${ref}`)).status, 404);
+  // accept
+  const acc = await Promise.all([instA.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: true }), instA.api('POST', `/installer/jobs/${ref}/accept`, { confirmAvailable: true })]);
+  assert.ok(acc.every((a) => a.status === 200));
+  assert.ok(acc[0].body.job.address.includes('Secret Close') && acc[0].body.job.customer.phone.startsWith('+234'));
   const cview = await buyer('GET', `/installations/${ref}`);
   assert.equal(cview.body.request.status, 'assigned');
   assert.ok(cview.body.request.installer?.phone, 'the customer now sees the installer');
   assert.ok(mails.some((m) => m.includes('You got the job')) && mails.some((m) => m.includes('An installer accepted')));
-  step('two installers accepted at once: one won (and got the address), one was told it was taken');
+  assert.ok(!JSON.stringify(cview.body).includes('recommended') && !JSON.stringify(cview.body).includes('queued'), 'the customer does not see the matching');
+  assert.equal((await instB.api('GET', `/installer/jobs/${ref}`)).status, 404);
+  step('accepting twice is harmless; the installer gets the address; the customer sees the installer, not the matching');
 
-  // finish
-  assert.equal((await buyer('POST', `/installations/${ref}/confirm`)).status, 409, 'cannot confirm before the installer is done');
-  assert.equal((await loserApi('POST', `/installer/jobs/${ref}/done`)).status, 404);
-  assert.equal((await winnerApi('POST', `/installer/jobs/${ref}/done`)).status, 200);
-  assert.equal((await winnerApi('POST', `/installer/jobs/${ref}/done`)).status, 200, 'marking done twice is harmless');
+  // the steps, in order
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/arrived`)).status, 409, 'cannot arrive before setting off');
+  assert.equal((await instB.api('POST', `/installer/jobs/${ref}/on-my-way`)).status, 404);
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/on-my-way`)).status, 200);
+  assert.ok(mails.some((m) => m.includes(`Your installer is on the way · ${ref}`)));
+  assert.equal((await upload(instA, ref, 'before')).status, 409, 'before pictures only once at the site');
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/arrived`)).status, 200);
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/start`)).status, 400, 'a before picture is required to start');
+  assert.equal((await upload(instA, ref, 'sideways')).status, 404);
+  assert.equal((await upload(instA, ref, 'before', Buffer.from('not a picture at all'))).status, 400);
+  assert.equal((await upload(instB, ref, 'before')).status, 404, 'another installer cannot add pictures');
+  const b1 = await upload(instA, ref, 'before');
+  assert.equal(b1.status, 201, JSON.stringify(b1.body));
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/start`)).status, 200);
+  assert.equal((await upload(instA, ref, 'after')).status, 201);
+  for (let n = 0; n < 5; n += 1) await upload(instA, ref, 'after');
+  assert.equal((await upload(instA, ref, 'after')).status, 409, 'six pictures at most');
+  step('on my way → arrived → before picture → start, in order; pictures are checked and capped');
+
+  // completion report
+  const mine = await instA.api('GET', '/installer/jobs/mine');
+  const photosAfter = mine.body.jobs[0].work.afterPhotos;
+  assert.equal(photosAfter.length, 6);
+  assert.equal((await instA.api('DELETE', `/installer/jobs/${ref}/photos/${photosAfter[5]}`)).status, 200);
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/complete`, { summary: 'short' })).status, 400);
+  assert.equal((await instB.api('POST', `/installer/jobs/${ref}/complete`, { summary: 'Installed everything neatly' })).status, 404);
+  assert.equal((await buyer('POST', `/installations/${ref}/confirm`)).status, 409, 'cannot confirm before the installer reports');
+  assert.equal((await buyer('POST', `/installations/${ref}/cancel`)).status, 409, 'the customer cannot cancel once the installer is on site');
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/complete`, { summary: 'Mounted 8 panels, wired the 5 kVA inverter and two batteries.' })).status, 200);
+  assert.equal((await instA.api('POST', `/installer/jobs/${ref}/complete`, { summary: 'Mounted 8 panels, wired the 5 kVA inverter and two batteries.' })).status, 409);
+  assert.ok(mails.some((m) => m.includes(`Installation finished? · ${ref}`)));
+  const done = await buyer('GET', `/installations/${ref}`);
+  assert.equal(done.body.request.status, 'installer_done');
+  assert.equal(done.body.request.work.beforePhotos.length, 1);
+  assert.equal(done.body.request.work.afterPhotos.length, 5);
+  assert.ok(done.body.request.work.completion.summary.includes('Mounted 8 panels'));
+  step('completion report needs after pictures and a summary; the customer sees the report with before and after pictures');
+
+  // picture privacy
+  const bid = done.body.request.work.beforePhotos[0];
+  assert.equal((await buyer('GET', `/installations/${ref}/photos/${bid}`)).status, 200);
+  assert.equal((await instA.api('GET', `/installer/jobs/${ref}/photos/${bid}`)).status, 200);
+  assert.equal((await admin('GET', `/admin/installations/${ref}/photos/${bid}`)).status, 200);
+  assert.equal((await cust2('GET', `/installations/${ref}/photos/${bid}`)).status, 404);
+  assert.equal((await instB.api('GET', `/installer/jobs/${ref}/photos/${bid}`)).status, 404);
+  assert.equal((await client()('GET', `/installations/${ref}/photos/${bid}`)).status, 401);
+  step('job pictures are private to the customer, the installer and the admin');
+
+  // problem stops the auto-close
+  assert.equal((await buyer('POST', `/installations/${ref}/problem`, { note: 'short' })).status, 400);
+  assert.equal((await cust2('POST', `/installations/${ref}/problem`, { note: 'The inverter keeps beeping all night' })).status, 404);
+  assert.equal((await buyer('POST', `/installations/${ref}/problem`, { note: 'The inverter keeps beeping all night' })).status, 200);
+  assert.equal((await buyer('POST', `/installations/${ref}/problem`, { note: 'The inverter keeps beeping all night' })).status, 409, 'reported once');
+  assert.ok(mails.some((m) => m.includes(`PROBLEM REPORTED · ${ref}`)));
+  await query("UPDATE install_requests SET installer_done_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 13 HOUR) WHERE public_ref = ?", [ref]);
+  await installationsService.housekeeping();
+  assert.equal((await row(ref)).status, 'installer_done', 'a reported problem stops the automatic close');
+  assert.ok((await admin('GET', '/admin/installations?needsAction=1')).body.requests.some((x) => x.ref === ref), 'it shows in the admin queue');
+  // confirm (three at once), payout, review
   assert.equal((await cust2('POST', `/installations/${ref}/confirm`)).status, 404);
   const conf = await Promise.all([1, 2, 3].map(() => buyer('POST', `/installations/${ref}/confirm`)));
   assert.ok(conf.every((c) => c.status === 200));
   assert.equal(mails.filter((m) => m.includes(`PAYOUT OWED · ${ref}`)).length, 1, 'three confirmations closed it once');
-  const earned = await winnerApi('GET', '/installer/jobs/mine');
-  assert.equal(earned.body.earnings.owed, 77000);
+  assert.equal((await instA.api('GET', '/installer/jobs/mine')).body.earnings.owed, 77000);
   assert.equal((await admin('POST', `/admin/installations/${ref}/payout-paid`)).status, 200);
   assert.equal((await admin('POST', `/admin/installations/${ref}/payout-paid`)).status, 409, 'a payout is recorded once');
-  assert.equal((await winnerApi('GET', '/installer/jobs/mine')).body.earnings.paid, 77000);
-  step('done → confirmed once → payout ₦77,000 owed, then recorded as paid once');
-
-  const newPaidJob = async (extraBody = {}) => {
-    const m = await buyer('POST', '/installations', { ...body, ...extraBody });
-    const p = await buyer('POST', `/installations/${m.body.request.ref}/pay`);
-    await buyer('POST', "/installations/mock-pay", { reference: p.body.reference });
-    return m.body.request.ref;
-  };
+  assert.equal((await buyer('POST', `/installations/${ref}/review`, { rating: 9 })).status, 400);
+  assert.equal((await cust2('POST', `/installations/${ref}/review`, { rating: 5 })).status, 404);
+  assert.equal((await buyer('POST', `/installations/${ref}/review`, { rating: 5, comment: 'Neat work' })).status, 201);
+  assert.equal((await buyer('POST', `/installations/${ref}/review`, { rating: 1 })).status, 409, 'one review per job');
+  const mine2 = await instA.api('GET', '/installer/jobs/mine');
+  assert.equal(mine2.body.earnings.paid, 77000);
+  assert.deepEqual(mine2.body.rating, { average: 5, count: 1 });
+  assert.equal((await buyer('GET', `/installations/${ref}`)).body.request.work.review.rating, 5);
+  step('a problem stops the auto-close; confirmed once → ₦77,000 payout owed then paid once; one review, which counts in the installer’s rating');
 
   // 12-hour auto close
   const r2 = await newPaidJob();
-  await instA.api('POST', `/installer/jobs/${r2}/accept`, { confirmAvailable: true });
-  await instB.api('POST', `/installer/jobs/${r2}/accept`, { confirmAvailable: true });
-  const [r2row] = await query('SELECT installer_id FROM install_requests WHERE public_ref = ?', [r2]);
-  const r2api = Number(r2row.installer_id) === instA.id ? instA.api : instB.api;
-  await r2api('POST', `/installer/jobs/${r2}/done`);
+  const w2 = await offerAndAccept(r2);
+  await w2.api('POST', `/installer/jobs/${r2}/on-my-way`); await w2.api('POST', `/installer/jobs/${r2}/arrived`);
+  await upload(w2, r2, 'before'); await w2.api('POST', `/installer/jobs/${r2}/start`); await upload(w2, r2, 'after');
+  assert.equal((await w2.api('POST', `/installer/jobs/${r2}/complete`, { summary: 'Everything fitted and tested.' })).status, 200);
   await query("UPDATE install_requests SET installer_done_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 11 HOUR) WHERE public_ref = ?", [r2]);
   await installationsService.housekeeping();
-  assert.equal((await buyer('GET', `/installations/${r2}`)).body.request.status, 'installer_done', 'not closed before 12 hours');
+  assert.equal((await row(r2)).status, 'installer_done', 'not closed before 12 hours');
   await query("UPDATE install_requests SET installer_done_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 13 HOUR) WHERE public_ref = ?", [r2]);
   await Promise.all([installationsService.housekeeping(), installationsService.housekeeping()]);
-  assert.equal((await buyer('GET', `/installations/${r2}`)).body.request.status, 'completed');
+  assert.equal((await row(r2)).status, 'completed');
   assert.equal(mails.filter((m) => m.includes(`PAYOUT OWED · ${r2}`)).length, 1);
   step('a finished job nobody confirmed closed itself after 12 hours (not at 11), once');
 
-  // nobody accepts → admin alert; decline → still offered to the other; all decline → alert
+  // auto-approval, an installer who stays silent, a decline, the list running out, then the admin assigns by hand
   const r3 = await newPaidJob();
-  await query("UPDATE install_requests SET open_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 3 HOUR) WHERE public_ref = ?", [r3]);
-  const hk = await installationsService.housekeeping();
-  assert.ok(hk.alerted >= 1);
-  assert.ok(mails.some((m) => m.includes(`NO INSTALLER YET · ${r3}`) && m.includes('Nobody has accepted')));
-  const again = await installationsService.housekeeping();
-  assert.equal(again.alerted, 0, 'the alert is sent once');
+  assert.equal((await matchesOf(r3)).find((m) => m.status === 'recommended').installer_id, instA.id);
+  await query("UPDATE install_matches m JOIN install_requests q ON q.id = m.request_id SET m.admin_due_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE q.public_ref = ? AND m.status = 'recommended'", [r3]);
+  assert.ok((await installationsService.housekeeping()).autoApproved >= 1);
+  assert.equal((await matchesOf(r3)).find((m) => m.installer_id === instA.id).status, 'offered', 'left alone, the recommendation is approved automatically');
+  await query("UPDATE install_matches m JOIN install_requests q ON q.id = m.request_id SET m.tech_due_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE q.public_ref = ? AND m.status = 'offered'", [r3]);
+  assert.ok((await installationsService.housekeeping()).lapsed >= 1);
+  const afterLapse = await matchesOf(r3);
+  assert.equal(afterLapse.find((m) => m.installer_id === instA.id).status, 'timed_out');
+  assert.equal(afterLapse.find((m) => m.installer_id === instB.id).status, 'recommended', 'the next installer is recommended to the admin');
+  assert.deepEqual((await instA.api('GET', '/installer/jobs')).body.jobs.filter((j) => j.ref === r3), [], 'the one who stayed silent no longer sees it');
+  assert.equal((await admin('POST', `/admin/installations/${r3}/approve`)).status, 200);
+  assert.equal((await instB.api('POST', `/installer/jobs/${r3}/decline`)).status, 200);
+  assert.ok(mails.some((m) => m.includes(`NO INSTALLER YET · ${r3}`) && m.includes('nobody left')), 'when the list runs out the admin is told');
+  assert.equal((await admin('POST', `/admin/installations/${r3}/assign`, { installerId: instA.id })).status, 200, 'the admin picks one by hand');
+  assert.equal((await instA.api('POST', `/installer/jobs/${r3}/accept`, { confirmAvailable: true })).status, 200);
+  assert.equal((await row(r3)).status, 'assigned');
+  step('silence → auto-approval and a time-out that moves on; a decline; list used up alerts the admin; the admin assigns by hand');
+
+  // the admin declines a recommendation: the next one is recommended
   const r4 = await newPaidJob();
-  assert.equal((await instA.api('POST', `/installer/jobs/${r4}/decline`)).status, 200);
-  assert.equal((await instB.api('GET', '/installer/jobs')).body.jobs.some((j) => j.ref === r4), true, 'the other installer still has the job');
-  assert.equal((await instA.api('GET', '/installer/jobs')).body.jobs.some((j) => j.ref === r4), false);
-  assert.equal((await instB.api('POST', `/installer/jobs/${r4}/decline`)).status, 200);
-  assert.ok(mails.some((m) => m.includes(`NO INSTALLER YET · ${r4}`) && m.includes('declined')));
-  step('no taker after 2 hours alerts the admin once; a decline passes the job to the others; everyone declining alerts the admin');
+  assert.equal((await admin('POST', `/admin/installations/${r4}/decline`)).status, 200);
+  assert.equal((await matchesOf(r4)).find((m) => m.status === 'recommended').installer_id, instB.id);
+  assert.equal((await admin('POST', `/admin/installations/${r4}/assign`, { installerId: instAbuja.id })).status, 200, 'any approved installer can be chosen by hand');
+  assert.ok((await instAbuja.api('GET', '/installer/jobs')).body.jobs.some((j) => j.ref === r4));
 
-  // admin cancels a stuck paid job: refund flagged; customer cannot cancel a paid job
-  assert.equal((await buyer('POST', `/installations/${r4}/cancel`)).status, 409);
-  assert.equal((await admin('POST', `/admin/installations/${r4}/cancel`, {})).status, 400, 'a reason is required');
-  assert.equal((await admin('POST', `/admin/installations/${r4}/cancel`, { reason: 'No installer available' })).status, 200);
+  // customer cancels while finding: full refund; the unpaid cancel was covered above
+  assert.equal((await cust2('POST', `/installations/${r4}/cancel`)).status, 404);
+  assert.equal((await buyer('POST', `/installations/${r4}/cancel`)).status, 200);
+  const c4 = await row(r4);
+  assert.deepEqual([c4.status, Number(c4.refund_amount), Number(c4.refund_needed)], ['cancelled', 110000, 1]);
   assert.ok(mails.some((m) => m.includes(`REFUND NEEDED · ${r4}`)));
-  assert.equal((await admin('GET', `/admin/installations?status=cancelled`)).body.requests.find((x) => x.ref === r4).refundNeeded, true);
+  assert.equal((await instAbuja.api('POST', `/installer/jobs/${r4}/accept`, { confirmAvailable: true })).status, 404, 'a cancelled job cannot be taken');
   assert.equal((await admin('POST', `/admin/installations/${r4}/refunded`)).status, 200);
-  assert.equal((await instB.api('POST', `/installer/jobs/${r4}/accept`, { confirmAvailable: true })).status, 409, 'a cancelled job cannot be taken');
-  step('admin cancelled a stuck paid job; refund flagged then recorded; the job can no longer be taken');
+  assert.equal((await admin('POST', `/admin/installations/${r4}/refunded`)).status, 409);
+  step('cancelling while the job is being matched refunds everything and closes the offer');
 
-  // jobs follow the customer's state
-  const r5 = await newPaidJob({ state: 'abuja', areaId: 'garki' });
-  assert.equal((await instAbuja.api('GET', '/installer/jobs')).body.jobs.some((j) => j.ref === r5), true, 'the Abuja installer was sent the Abuja job');
+  // cancel after the installer set off: half refund, installer paid their share of what is kept; no-show: full refund
+  const r5 = await newPaidJob();
+  const w5 = await offerAndAccept(r5);
+  assert.equal((await buyer('POST', `/installations/${r5}/no-show`)).status, 409, 'no-show only once the installer is overdue');
+  await w5.api('POST', `/installer/jobs/${r5}/on-my-way`);
+  assert.equal((await buyer('POST', `/installations/${r5}/no-show`)).status, 409, 'too early');
+  assert.equal((await buyer('POST', `/installations/${r5}/cancel`)).status, 200);
+  const c5 = await row(r5);
+  assert.deepEqual([c5.status, Number(c5.refund_amount), Number(c5.payout_amount), c5.payout_status], ['cancelled', 55000, 38500, 'owed']);
+  const r6 = await newPaidJob();
+  const w6 = await offerAndAccept(r6);
+  await w6.api('POST', `/installer/jobs/${r6}/on-my-way`);
+  await query("UPDATE install_requests SET on_the_way_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 4 HOUR) WHERE public_ref = ?", [r6]);
+  assert.equal((await buyer('GET', `/installations/${r6}`)).body.request.noShowAfter !== null, true);
+  assert.equal((await buyer('POST', `/installations/${r6}/no-show`)).status, 200);
+  const c6 = await row(r6);
+  assert.deepEqual([c6.status, Number(c6.refund_amount), Number(c6.payout_amount)], ['cancelled', 110000, 0]);
+  step('cancel after the installer set off = half refund and a trip payout; a no-show after 3 hours = full refund');
+
+  // admin cancels mid-job: everything is refunded
+  const r7 = await newPaidJob();
+  const w7 = await offerAndAccept(r7);
+  await w7.api('POST', `/installer/jobs/${r7}/on-my-way`); await w7.api('POST', `/installer/jobs/${r7}/arrived`);
+  assert.equal((await admin('POST', `/admin/installations/${r7}/cancel`, {})).status, 400, 'a reason is required');
+  assert.equal((await admin('POST', `/admin/installations/${r7}/cancel`, { reason: 'Site is unsafe' })).status, 200);
+  assert.equal(Number((await row(r7)).refund_amount), 110000);
+  assert.ok((await admin('GET', '/admin/installations?status=cancelled')).body.requests.find((x) => x.ref === r7).refundNeeded);
+  step('the admin can cancel a job in progress; the customer is refunded in full');
+
+  // nobody to send it to; Abuja jobs go to Abuja installers; legacy open jobs
+  await query("UPDATE installer_profiles ip JOIN users u ON u.id = ip.user_id SET ip.verification_status = 'pending' WHERE u.id IN (?, ?, ?)", [instA.id, instB.id, instFar.id]);
+  const r8 = await newPaidJob({ state: 'abuja', areaId: 'garki' });
+  assert.equal((await matchesOf(r8)).find((m) => m.status === 'recommended').installer_id, instAbuja.id, 'Abuja jobs go to Abuja installers');
+  const r9 = await newPaidJob();
+  assert.equal((await matchesOf(r9)).length, 0);
+  assert.ok(mails.some((m) => m.includes(`NO INSTALLER YET · ${r9}`)), 'with nobody in range the admin is told at once');
+  assert.ok((await admin('GET', '/admin/installations?needsAction=1')).body.requests.some((x) => x.ref === r9));
+  await query("UPDATE installer_profiles SET verification_status = 'verified' WHERE user_id = ?", [instA.id]);
+  assert.equal((await admin('POST', `/admin/installations/${r9}/assign`, { installerId: instA.id })).status, 200);
+  await query("UPDATE install_requests SET status = 'finding' WHERE public_ref = ?", [r9]);
   const list = await admin('GET', '/admin/installations');
-  assert.ok(list.body.requests.length >= 4 && list.body.stats);
-  assert.equal((await buyer('GET', '/admin/installations')).status, 403);
-  step('Abuja jobs go to Abuja installers; admin list and stats work');
+  assert.ok(list.body.requests.length >= 4 && list.body.stats.finding >= 1);
+  step('Abuja jobs go to Abuja installers; with nobody in range the admin is told and assigns by hand');
+  await query("UPDATE installer_profiles SET verification_status = 'verified' WHERE user_id IN (?, ?)", [instB.id, instFar.id]);
 }
 
 // ---------- blog ----------

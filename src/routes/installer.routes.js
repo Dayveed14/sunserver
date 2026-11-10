@@ -8,7 +8,7 @@ import * as j from '../controllers/installations.controller.js';
 import * as rp from '../controllers/repairs.controller.js';
 import { completeSchema, partsNoteSchema, repairReportSchema, variationSchema } from '../validators/repairs.schemas.js';
 import { MAX_IMAGE_BYTES } from '../utils/images.js';
-import { acceptJobSchema } from '../validators/installations.schemas.js';
+import { acceptJobSchema, completeInstallSchema } from '../validators/installations.schemas.js';
 import { quizSchema } from '../validators/verification.schemas.js';
 import * as reg from '../controllers/installerRegistration.controller.js';
 import { registrationPatchSchema, referencesSchema, submitRegistrationSchema } from '../validators/installerRegistration.schemas.js';
@@ -39,7 +39,13 @@ router.get('/jobs/mine', j.myJobs);
 router.get('/jobs/:ref', j.job);
 router.post('/jobs/:ref/accept', validate(acceptJobSchema), j.accept);
 router.post('/jobs/:ref/decline', j.decline);
-router.post('/jobs/:ref/done', j.done);
+router.post('/jobs/:ref/on-my-way', j.onMyWay);
+router.post('/jobs/:ref/arrived', j.arrived);
+router.post('/jobs/:ref/start', j.start);
+router.post('/jobs/:ref/photos/:kind', express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_IMAGE_BYTES }), j.addPhoto);
+router.delete('/jobs/:ref/photos/:id', j.removePhoto);
+router.get('/jobs/:ref/photos/:id', j.photo);
+router.post('/jobs/:ref/complete', validate(completeInstallSchema), j.complete);
 
 // Repairs: offers the admin approved for this technician, and the ones they have taken.
 router.get('/repairs', rp.offers);

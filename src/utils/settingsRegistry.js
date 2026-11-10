@@ -62,6 +62,9 @@ const DEFS = [
   ['installPayoutPct', 'Installer share of the fee', 'Installation (installer jobs)', 'pct', 'I', ['payoutPct'], 0.1, 0.95, 'of the installation fee'],
   ['installAlertMinutes', 'Alert the admin if nobody accepts within', 'Installation (installer jobs)', 'number', 'I', ['alertMinutes'], 5, 2880, 'minutes'],
   ['installAutoCloseHours', 'Close a finished job by itself after', 'Installation (installer jobs)', 'number', 'I', ['autoCloseHours'], 1, 168, 'hours, if the customer does not confirm'],
+  ['installAdminMinutes', 'Time the admin has to act on a recommended installer', 'Installation (installer jobs)', 'number', 'I', ['adminMinutes'], 1, 1440, 'minutes, then it is approved automatically'],
+  ['installOfferMinutes', 'Time an installer has to answer an offer', 'Installation (installer jobs)', 'number', 'I', ['installerMinutes'], 5, 2880, 'minutes, then it goes to the next installer'],
+  ['installNoShowHours', 'Installer counts as a no-show after', 'Installation (installer jobs)', 'number', 'I', ['noShowHours'], 1, 48, 'hours after "on my way" without arriving: the customer may cancel for a full refund'],
   // Repairs
   ['repairFeeNear', 'Call-out fee, close by', 'Repairs', 'naira', 'R', ['fees', 'near'], 500, 500000, '₦ when the technician is up to the first distance below'],
   ['repairFeeMid', 'Call-out fee, across town', 'Repairs', 'naira', 'R', ['fees', 'mid'], 500, 500000, '₦ up to the second distance'],

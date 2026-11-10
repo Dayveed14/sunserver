@@ -391,7 +391,7 @@ assert.equal(await instStatus(), 'awaiting_payment', 'bad signature, short payme
 const igood = ievent();
 const iresults = await Promise.all(Array.from({ length: 6 }, () => hook(igood, sign(igood))));
 assert.ok(iresults.every((r) => r.status === 200));
-assert.equal(await instStatus(), 'open');
+assert.equal(await instStatus(), 'finding');
 assert.equal(Number((await query("SELECT COUNT(*) c FROM install_payments WHERE reference = ? AND status = 'success'", [instPay.body.reference]))[0].c), 1);
 assert.equal((await custB('POST', `/installations/verify`, { reference: instPay.body.reference })).status, 404, 'another customer cannot verify it');
 assert.equal((await custA('POST', `/installations/${instRef}/pay`)).status, 409, 'a paid request cannot be paid again');
