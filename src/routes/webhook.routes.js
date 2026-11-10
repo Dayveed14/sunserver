@@ -2,8 +2,9 @@ import express, { Router } from 'express';
 import { env } from '../config/env.js';
 import { createWebhookHandler } from '../controllers/webhook.controller.js';
 import { webhookLimiter } from '../middleware/rateLimits.js';
-import { installationsService, ordersService, registrationFeeService, subscriptionService } from '../services/index.js';
+import { installationsService, ordersService, registrationFeeService, repairsService, subscriptionService } from '../services/index.js';
 import { INSTALL_REF_PREFIX } from '../services/installations.service.js';
+import { REPAIR_REF_PREFIX } from '../services/repairs.service.js';
 import { SUB_REF_PREFIX } from '../services/subscription.service.js';
 import { FEE_REF_PREFIX } from '../services/registrationFee.service.js';
 
@@ -19,6 +20,7 @@ router.post('/paystack', webhookLimiter, express.raw({ type: '*/*', limit: '200k
         if (ref.startsWith(FEE_REF_PREFIX)) return registrationFeeService.handleWebhook(event);
         if (ref.startsWith(SUB_REF_PREFIX)) return subscriptionService.handleWebhook(event);
         if (ref.startsWith(INSTALL_REF_PREFIX)) return installationsService.handleWebhook(event);
+        if (ref.startsWith(REPAIR_REF_PREFIX)) return repairsService.handleWebhook(event);
         return ordersService.handleWebhook(event);
       },
     },

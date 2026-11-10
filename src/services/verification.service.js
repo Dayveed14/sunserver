@@ -2,12 +2,13 @@ import { randomBytes } from 'node:crypto';
 import { HttpError } from '../lib/httpError.js';
 import { DOCUMENT_KINDS, MAX_DOCUMENT_BYTES, requiredKinds, sniffDocument } from '../utils/documents.js';
 import { publicQuiz, scoreQuiz, validQuizAnswers } from '../utils/installerQuiz.js';
+import { MIN_REFERENCES, INSTALLER_DOC_KINDS, registrationOptions } from '../utils/installerRegistration.js';
 
 const MAX_DOCS = 8;
 const notFound = (what) => new HttpError(404, 'NOT_FOUND', `${what} not found.`);
 
 // Vendor document checks and installer vetting. Only the owner and the admin can ever read a document.
-export function createVerificationService({ vendorsModel, installersModel, documentsModel, usersModel, auditModel, cloudinary, notifier }) {
+export function createVerificationService({ vendorsModel, installersModel, installerRegistrationModel, documentsModel, usersModel, auditModel, cloudinary, notifier }) {
   const who = (p) => p.companyName ?? p.contactName ?? p.email;
 
   async function vendorStatus(userId) {
@@ -104,7 +105,10 @@ export function createVerificationService({ vendorsModel, installersModel, docum
     async installerSummary(userId) {
       const p = await installersModel.getProfile(userId);
       if (!p) throw notFound('Installer');
-      return { verification: p.verification, note: p.note, quizSubmitted: Boolean(p.quizSubmittedAt), yearsExperience: p.yearsExperience };
+      return {
+        verification: p.verification, note: p.note, quizSubmitted: Boolean(p.quizSubmittedAt), yearsExperience: p.yearsExperience,
+        registrationSubmitted: Boolean(p.registrationSubmittedAt), acceptsRepairs: p.acceptsRepairs,
+      };
     },
 
     // The installer sees the questions only. No score and no right answers ever leave the server.
@@ -121,11 +125,22 @@ export function createVerificationService({ vendorsModel, installersModel, docum
       if (p.quizSubmittedAt && p.verification === 'pending') throw new HttpError(409, 'QUIZ_SUBMITTED', 'You have already sent your answers. We will email you when they are reviewed.');
       if (!validQuizAnswers(answers)) throw new HttpError(400, 'VALIDATION_ERROR', 'Please answer every question.');
       const { score, total } = scoreQuiz(answers);
-      await installersModel.setExperience(userId, yearsExperience ?? null);
+      if (yearsExperience != null) await installersModel.setExperience(userId, yearsExperience);
       await installersModel.saveAttempt({ userId, answers, score, total });
-      const u = await usersModel.findById(userId);
-      await notifier.notify('installer_quiz_submitted', { who: u?.full_name ?? u?.email ?? `installer ${userId}` });
+      // Installers on the new registration are reported to the admin when they send the whole registration, not at this step.
+      if (p.flowVersion < 2) {
+        const u = await usersModel.findById(userId);
+        await notifier.notify('installer_quiz_submitted', { who: u?.full_name ?? u?.email ?? `installer ${userId}` });
+      }
       return { submitted: true };
+    },
+
+    // The admin records that they phoned a reference (or takes the tick back).
+    async checkReference(adminId, installerId, refId, { called, note }) {
+      const done = await installerRegistrationModel.markCalled(installerId, refId, adminId, called, note?.trim());
+      if (!done) throw notFound('Reference');
+      await auditModel.add({ adminId, action: 'installer.reference', target: `installer:${installerId}`, detail: { refId, called, note: note?.trim() || null } });
+      return { references: await installerRegistrationModel.listReferences(installerId) };
     },
 
     async listInstallers({ status }) {
@@ -137,9 +152,25 @@ export function createVerificationService({ vendorsModel, installersModel, docum
       if (!p) throw notFound('Installer');
       const attempt = await installersModel.latestAttempt(installerId);
       const u = await usersModel.findById(installerId);
+      const [registration, references, documents] = await Promise.all([
+        installerRegistrationModel.get(installerId),
+        installerRegistrationModel.listReferences(installerId),
+        documentsModel.listFor(installerId),
+      ]);
+      const options = registrationOptions();
+      const label = (list, id) => list.find((o) => o.id === id)?.label ?? null;
       return {
         installer: { userId: installerId, name: u?.full_name, email: u?.email, phone: u?.phone, state: u?.address_state, ...p },
         quiz: attempt ? { ...scoreQuiz(attempt.answers), submittedAt: attempt.createdAt } : null,
+        registration: registration && {
+          flowVersion: registration.flowVersion, submittedAt: registration.registrationSubmittedAt,
+          business: label(options.businessStatus, registration.businessStatus), travelKm: registration.travelKm,
+          experience: label(options.experience, registration.experienceBand), qualification: label(options.qualification, registration.qualification),
+          about: registration.about, projectTypes: (registration.projectTypes ?? []).map((id) => label(options.projectTypes, id)).filter(Boolean),
+          capacity: registration.capacity, responseTime: label(options.responseTime, registration.responseTime), acceptsRepairs: registration.acceptsRepairs,
+        },
+        references,
+        documents: documents.filter((d) => d.kind in INSTALLER_DOC_KINDS),
       };
     },
 
@@ -148,6 +179,13 @@ export function createVerificationService({ vendorsModel, installersModel, docum
       if (!p) throw notFound('Installer');
       if (status === 'rejected' && !note?.trim()) throw new HttpError(400, 'VALIDATION_ERROR', 'Say why, so the installer knows what to do next.');
       if (status === 'verified' && !p.quizSubmittedAt) throw new HttpError(409, 'QUIZ_MISSING', 'This installer has not answered the questions yet.');
+      if (status === 'verified' && p.flowVersion >= 2) {
+        // New registrations: sent for review, two references, and every reference phoned by us first.
+        if (!p.registrationSubmittedAt) throw new HttpError(409, 'REGISTRATION_MISSING', 'This installer has not finished the registration yet.');
+        const refs = await installerRegistrationModel.listReferences(installerId);
+        if (refs.length < MIN_REFERENCES) throw new HttpError(409, 'REFERENCES_MISSING', `This installer needs at least ${MIN_REFERENCES} references.`);
+        if (refs.some((r) => !r.calledAt)) throw new HttpError(409, 'REFERENCES_NOT_CALLED', 'Phone every reference and tick it off before approving.');
+      }
       await installersModel.setVerification(installerId, status, note?.trim() || null);
       await auditModel.add({ adminId, action: 'installer.verification', target: `installer:${installerId}`, detail: { from: p.verification, to: status, note: note?.trim() || null } });
       const u = await usersModel.findById(installerId);

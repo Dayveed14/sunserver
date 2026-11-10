@@ -248,6 +248,58 @@ export function createNotifier({ mailer, config, tokens, now = () => new Date() 
       await send(adminEmail, { subject: `REFUND NEEDED · ${request.ref}`, heading: `Refund needed for ${request.ref}`, lines: [`Refund ${naira(request.price)} to ${customer.fullName}.`] });
     },
 
+    // ---- repairs ----
+    async repair_paid({ request, customer }) {
+      await send(customer.email, {
+        subject: `Call-out fee paid · ${request.ref}`, heading: 'We are finding your technician',
+        lines: [`Hi ${customer.fullName}, we received your call-out fee of ${naira(request.fee)} for ${request.ref} (${request.fault}).`, 'We are choosing the best technician near you. You will get an email as soon as one accepts.', 'Please pay only inside TerraVoltix, never to the technician directly.'],
+        button: { label: 'Track your repair', url: link(`/app/repairs/${request.ref}`) },
+      });
+    },
+    async repair_recommend({ request, technician, match, minutes, why }) {
+      await send(adminEmail, {
+        subject: `Repair ${request.ref}: approve ${technician?.name ?? 'a technician'}?`, heading: 'A technician is recommended',
+        lines: [...(why ? [why] : []), `${request.fault} in ${request.area} (${request.urgent ? 'URGENT' : 'normal'}). Call-out fee ${naira(request.fee)}.`, `Recommended: ${technician?.name ?? 'a technician'}${match ? `, about ${match.distanceKm} km away, score ${match.score}` : ''}.`, `If you do nothing, this is approved automatically in ${minutes} minutes.`],
+        button: { label: 'Open repairs', url: link('/app/admin-repairs') },
+      });
+    },
+    async repair_offer({ request, technician, minutes, earn }) {
+      if (!technician?.email) return;
+      await send(technician.email, {
+        subject: `Repair job near you · ${request.area} · ${naira(earn)}`, heading: 'A repair job is waiting for you',
+        lines: [`Hi ${technician.name}, ${request.fault} in ${request.area} (${request.urgent ? 'urgent' : 'normal'}).`, `Equipment: ${request.equipment.join(', ')}. About ${request.distanceKm} km from you.`, `You earn ${naira(earn)} for the call-out visit, plus a share of any repair that follows.`, `Please answer within ${minutes} minutes or it moves to another technician. You see the address after you accept.`],
+        button: { label: 'Open the job', url: link('/app/repair-jobs') },
+      });
+    },
+    async repair_assigned({ request, customer, technician }) {
+      await send(customer.email, {
+        subject: `Technician assigned · ${request.ref}`, heading: 'Your technician is confirmed',
+        lines: [`Hi ${customer.fullName}, ${technician.fullName} will visit to inspect the fault.`, technician.phone ? `Their number: ${technician.phone}.` : 'They will contact you shortly.', 'You will be told when they set off.'],
+        button: { label: 'Track your repair', url: link(`/app/repairs/${request.ref}`) },
+      });
+    },
+    async repair_lapsed({ request, technician, minutes }) {
+      await send(adminEmail, { subject: `Repair ${request.ref}: technician did not answer`, heading: 'A technician did not respond', lines: [`${technician?.name ?? 'The technician'} did not answer within ${minutes} minutes. The next-ranked technician is now recommended for your approval.`], button: { label: 'Open repairs', url: link('/app/admin-repairs') } });
+    },
+    async repair_unfilled({ request, reason }) {
+      await send(adminEmail, { subject: `NO TECHNICIAN YET · ${request.ref}`, heading: `Repair ${request.ref} needs you`, lines: [reason, `${request.fault} in ${request.area}. The customer paid ${naira(request.fee)}.`, 'Pick a technician by hand, or cancel and refund the customer.'], button: { label: 'Open repairs', url: link('/app/admin-repairs') } });
+    },
+    async repair_on_the_way({ request, customer, technician }) {
+      await send(customer.email, { subject: `Technician on the way · ${request.ref}`, heading: 'Your technician is on the way', lines: [`Hi ${customer.fullName}, ${technician.fullName} has set off${technician.phone ? ` (${technician.phone})` : ''}.`, 'Please make sure someone is at the address.'], button: { label: 'Track your repair', url: link(`/app/repairs/${request.ref}`) } });
+    },
+    async repair_inspected({ request, customer, total, due }) {
+      await send(customer.email, {
+        subject: `Your repair estimate · ${request.ref}`, heading: 'The inspection is finished',
+        lines: [`Hi ${customer.fullName}, the technician has finished inspecting. The full repair is estimated at ${naira(total)}.`, `Your call-out fee of ${naira(request.fee)} is credited, so you would pay ${naira(due)} more.`, 'Open your request to see the findings and the itemised cost. Pay only inside TerraVoltix.'],
+        button: { label: 'See the estimate', url: link(`/app/repairs/${request.ref}`) },
+      });
+    },
+    async repair_cancelled({ request, refund, reason, customer, technician }) {
+      await send(customer.email, { subject: `Repair cancelled · ${request.ref}`, heading: 'Your repair request was cancelled', lines: [`${reason ? `Reason: ${reason}. ` : ''}You will be refunded ${naira(refund)}.`] });
+      await send(adminEmail, { subject: `REFUND NEEDED · ${request.ref}`, heading: `Refund needed for ${request.ref}`, lines: [`Refund ${naira(refund)} to ${customer.fullName}.`], button: { label: 'Open repairs', url: link('/app/admin-repairs') } });
+      if (technician?.email) await send(technician.email, { subject: `Job cancelled · ${request.ref}`, heading: 'The customer cancelled', lines: [`${request.ref} was cancelled. You do not need to go.`] });
+    },
+
     async payment_problem({ order, reason, reference }) {
       await send(adminEmail, { subject: `Payment problem · ${order.publicRef}`, heading: `Payment problem on ${order.publicRef}`, lines: [reason, `Paystack reference: ${reference}. Check the payment and refund if needed.`] });
     },

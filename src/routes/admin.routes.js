@@ -6,6 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import * as v from '../controllers/verification.controller.js';
 import { decisionSchema } from '../validators/verification.schemas.js';
+import { referenceCheckSchema } from '../validators/installerRegistration.schemas.js';
 import { productSchema } from '../validators/marketplace.schemas.js';
 import { settingsSchema, userStatusSchema, vendorStatusSchema } from '../validators/admin.schemas.js';
 
@@ -23,6 +24,7 @@ router.get('/documents/:id/file', v.documentFile);
 router.get('/installers', v.listInstallers);
 router.get('/installers/:id', v.installerReview);
 router.patch('/installers/:id/verification', validate(decisionSchema), v.decideInstaller);
+router.patch('/installers/:id/references/:refId', validate(referenceCheckSchema), v.checkReference);
 
 router.get('/subscriptions', sub.adminList);
 router.post('/subscriptions/grant-all', validate(grantAllSchema), sub.adminGrantAll);

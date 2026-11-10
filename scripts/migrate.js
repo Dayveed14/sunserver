@@ -91,4 +91,28 @@ export async function migrate(conn, database = 'solalium') {
   await addColumn('vendor_profiles', 'sub_lapsed_notified_for', 'DATETIME NULL');
   // Does an inverter already contain the solar charge controller (most hybrid inverters do)? If not, buyers are told to add one.
   await addColumn('products', 'includes_controller', 'TINYINT(1) NOT NULL DEFAULT 1');
+
+  // Phase 2 (installer registration): the fuller sign-up, two references and optional photos and a certificate.
+  // Installers who joined before this stay on the old rules (flow_version 1): they keep working and are not asked for references.
+  const hadFlowVersion = await hasColumn('installer_profiles', 'flow_version');
+  await addColumn('installer_profiles', 'flow_version', 'TINYINT UNSIGNED NOT NULL DEFAULT 2');
+  await addColumn('installer_profiles', 'registration_submitted_at', 'DATETIME NULL');
+  await addColumn('installer_profiles', 'business_status', "ENUM('cac','none','other') NULL");
+  await addColumn('installer_profiles', 'travel_km', 'SMALLINT UNSIGNED NULL');
+  await addColumn('installer_profiles', 'experience_band', "ENUM('lt1','y1_3','y4_6','y7_10','gt10') NULL");
+  await addColumn('installer_profiles', 'qualification', "ENUM('yes','no','training') NULL");
+  await addColumn('installer_profiles', 'about', 'VARCHAR(1000) NULL');
+  await addColumn('installer_profiles', 'project_types', 'JSON NULL');
+  await addColumn('installer_profiles', 'capacity', 'TINYINT UNSIGNED NULL');
+  await addColumn('installer_profiles', 'response_time', "ENUM('1h','4h','24h','48h') NULL");
+  await addColumn('installer_profiles', 'accepts_repairs', 'TINYINT(1) NOT NULL DEFAULT 1');
+  if (!hadFlowVersion) {
+    await conn.query('UPDATE installer_profiles SET flow_version = 1, registration_submitted_at = quiz_submitted_at');
+    console.log('Migrated: existing installers stay on the original approval rules.');
+  }
+  const [docKind] = await conn.query("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = ? AND table_name = 'verification_documents' AND column_name = 'kind'", [database]);
+  if (docKind[0] && !docKind[0].t.includes("'certificate'")) {
+    await conn.query("ALTER TABLE verification_documents MODIFY COLUMN kind ENUM('cac','tax','id','shop','other','certificate','work','photo') NOT NULL");
+    console.log('Migrated: verification_documents.kind now accepts installer certificates and photos.');
+  }
 }

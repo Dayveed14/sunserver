@@ -99,7 +99,7 @@ step('test accounts: two vendors, two customers, an installer, one admin');
 const MOUNTS = {
   'auth.routes.js': { router: '/api/auth' }, 'analysis.routes.js': { router: '/api/analysis' }, 'vendorFee.routes.js': { router: '/api/vendor/fee' },
   'vendorOrders.routes.js': { router: '/api/vendor/orders' }, 'vendor.routes.js': { router: '/api/vendor' }, 'vendorSubscription.routes.js': { router: '/api/vendor/subscription' }, 'partners.routes.js': { router: '/api/partners' }, 'adminOrders.routes.js': { router: '/api/admin/orders' },
-  'admin.routes.js': { router: '/api/admin' }, 'installer.routes.js': { router: '/api/installer' }, 'installations.routes.js': { router: '/api/installations' }, 'adminInstallations.routes.js': { router: '/api/admin/installations' }, 'blog.routes.js': { router: '/api/blog' }, 'adminBlog.routes.js': { router: '/api/admin/blog' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
+  'admin.routes.js': { router: '/api/admin' }, 'installer.routes.js': { router: '/api/installer' }, 'installations.routes.js': { router: '/api/installations' }, 'adminInstallations.routes.js': { router: '/api/admin/installations' }, 'repairs.routes.js': { router: '/api/repairs' }, 'adminRepairs.routes.js': { router: '/api/admin/repairs' }, 'blog.routes.js': { router: '/api/blog' }, 'adminBlog.routes.js': { router: '/api/admin/blog' }, 'dispatch.routes.js': { router: '/api/dispatch' }, 'orders.routes.js': { router: '/api' },
   'offers.routes.js': { router: '/api/offers' }, 'shop.routes.js': { router: '/api/shop' }, 'webhook.routes.js': { router: '/api/webhooks' },
   'audits.routes.js': { businessRouter: '/api/audits', agentRouter: '/api/agent', adminRouter: '/api/admin/audits', adminAgentsRouter: '/api/admin/field-agents', photoRouter: '/api/audit-photos' },
   'interest.routes.js': { router: '/api/interest' },
@@ -109,7 +109,7 @@ const PUBLIC = new Set([
   'POST /auth/register', 'POST /auth/verify-otp', 'POST /auth/resend-otp', 'POST /auth/login', 'POST /auth/forgot-password', 'POST /auth/reset-password', 'POST /auth/logout', 'GET /auth/areas',
   'GET /analysis/catalog/:segment', 'POST /analysis/estimate', 'POST /interest',
   'GET /dispatch/info', 'POST /dispatch/confirm', // protected by a signed link, tested below
-  'GET /installations/bands', 'GET /blog', 'GET /blog/:slug', 'GET /partners', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/budget-picks', 'GET /shop/products/:id', 'GET /shop/deals/:id',
+  'GET /installations/bands', 'GET /repairs/options', 'GET /blog', 'GET /blog/:slug', 'GET /partners', 'GET /shop/products', 'GET /shop/deals', 'GET /shop/budget-picks', 'GET /shop/products/:id', 'GET /shop/deals/:id',
   'GET /images/:id', 'POST /webhooks/paystack', // the webhook is protected by its signature, tested below
 ]);
 const routeDir = path.resolve('src/routes');
@@ -139,7 +139,7 @@ step(`${checked} protected endpoints all refuse a visitor with no login (${found
 // 2. WRONG ROLE. Each kind of account against the other kinds' areas.
 // ---------------------------------------------------------------------------------------------------------------
 const roleOf = (full) => (full.startsWith('/admin') ? 'admin' : full.startsWith('/vendor') ? 'vendor' : full.startsWith('/installer') ? 'installer'
-  : /^\/(offers|checkout|orders|installations|analysis\/assessments)/.test(full) ? 'customer' : null);
+  : /^\/(offers|checkout|orders|installations|repairs|analysis\/assessments)/.test(full) ? 'customer' : null);
 const actors = { admin, vendor: vendorA, customer: custA, installer: installerA };
 let crossed = 0;
 for (const r of found.filter((f) => !PUBLIC.has(f.key))) {

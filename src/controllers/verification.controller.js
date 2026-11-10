@@ -33,7 +33,7 @@ export const documentFile = asyncHandler(async (req, res) => {
 export const vendorReview = asyncHandler(async (req, res) => res.json(await svc.vendorReview(numId(req.params.id))));
 export const decideVendor = asyncHandler(async (req, res) => res.json(await svc.decideVendor(req.user.id, numId(req.params.id), req.valid)));
 export const listInstallers = asyncHandler(async (req, res) => {
-  const status = ['pending', 'verified', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
+  const status = ['pending', 'draft', 'verified', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
   res.json(await svc.listInstallers({ status }));
 });
 export const installerReview = asyncHandler(async (req, res) => res.json(await svc.installerReview(numId(req.params.id))));
@@ -43,3 +43,5 @@ export const decideInstaller = asyncHandler(async (req, res) => res.json(await s
 export const installerSummary = asyncHandler(async (req, res) => res.json(await svc.installerSummary(req.user.id)));
 export const quiz = asyncHandler(async (req, res) => res.json(await svc.quiz(req.user.id)));
 export const submitQuiz = asyncHandler(async (req, res) => res.json(await svc.submitQuiz(req.user.id, req.valid)));
+
+export const checkReference = asyncHandler(async (req, res) => res.json(await svc.checkReference(req.user.id, numId(req.params.id), numId(req.params.refId), req.valid)));

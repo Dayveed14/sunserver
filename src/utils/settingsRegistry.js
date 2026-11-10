@@ -5,6 +5,7 @@ import { SLA_RULES } from './sla.js';
 import { LEASE_RULES } from './lease.js';
 import { FEE_RULES } from './fees.js';
 import { INSTALL_RULES } from './installRules.js';
+import { REPAIR_RULES } from './repairRules.js';
 
 // The numbers an admin may change without a code release. Each entry points at a value inside the live
 // pricing objects, so a saved change takes effect on the next assessment or offer. Percentages are stored as
@@ -61,6 +62,18 @@ const DEFS = [
   ['installPayoutPct', 'Installer share of the fee', 'Installation (installer jobs)', 'pct', 'I', ['payoutPct'], 0.1, 0.95, 'of the installation fee'],
   ['installAlertMinutes', 'Alert the admin if nobody accepts within', 'Installation (installer jobs)', 'number', 'I', ['alertMinutes'], 5, 2880, 'minutes'],
   ['installAutoCloseHours', 'Close a finished job by itself after', 'Installation (installer jobs)', 'number', 'I', ['autoCloseHours'], 1, 168, 'hours, if the customer does not confirm'],
+  // Repairs
+  ['repairFeeNear', 'Call-out fee, close by', 'Repairs', 'naira', 'R', ['fees', 'near'], 500, 500000, '₦ when the technician is up to the first distance below'],
+  ['repairFeeMid', 'Call-out fee, across town', 'Repairs', 'naira', 'R', ['fees', 'mid'], 500, 500000, '₦ up to the second distance'],
+  ['repairFeeFar', 'Call-out fee, far side of town', 'Repairs', 'naira', 'R', ['fees', 'far'], 500, 500000, '₦ up to the third distance'],
+  ['repairFeeBeyond', 'Call-out fee, long trip', 'Repairs', 'naira', 'R', ['fees', 'beyond'], 500, 500000, '₦ for anything further'],
+  ['repairKmNear', 'Close by means up to', 'Repairs', 'number', 'R', ['bandKm', 'near'], 1, 100, 'km by road'],
+  ['repairKmMid', 'Across town means up to', 'Repairs', 'number', 'R', ['bandKm', 'mid'], 1, 100, 'km by road'],
+  ['repairKmFar', 'Far side of town means up to', 'Repairs', 'number', 'R', ['bandKm', 'far'], 1, 200, 'km by road'],
+  ['repairCommissionPct', 'TerraVoltix share of repairs', 'Repairs', 'pct', 'R', ['commissionPct'], 0, 0.6, 'of the call-out fee and of the repair'],
+  ['repairAdminMinutes', 'Time the admin has to act on a recommended technician', 'Repairs', 'number', 'R', ['adminMinutes'], 1, 1440, 'minutes, then it is approved automatically'],
+  ['repairTechnicianMinutes', 'Time a technician has to answer an offer', 'Repairs', 'number', 'R', ['technicianMinutes'], 5, 1440, 'minutes, then it goes to the next technician'],
+  ['repairConfirmHours', 'Close a finished repair by itself after', 'Repairs', 'number', 'R', ['confirmHours'], 1, 336, 'hours, if the customer does not confirm'],
   // Lease to own: pay small small
   ['leaseMarkup3', 'Mark-up on a 3-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '3'], 0, 1, 'over the cash price'],
   ['leaseMarkup4', 'Mark-up on a 4-month plan', 'Lease to own (pay small small)', 'pct', 'L', ['markupPct', '4'], 0, 1, 'over the cash price'],
@@ -93,8 +106,8 @@ function write(obj, path, value) {
 }
 
 // A registry works on the objects it is given, so tests can use copies and production uses the real ones.
-export function createSettingsRegistry({ assumptions, eaasRules, deliveryRules = structuredClone(DELIVERY_RULES), slaRules = structuredClone(SLA_RULES), leaseRules = structuredClone(LEASE_RULES), feeRules = structuredClone(FEE_RULES), installRules = structuredClone(INSTALL_RULES) }) {
-  const roots = { A: assumptions, E: eaasRules, D: deliveryRules, S: slaRules, L: leaseRules, F: feeRules, I: installRules };
+export function createSettingsRegistry({ assumptions, eaasRules, deliveryRules = structuredClone(DELIVERY_RULES), slaRules = structuredClone(SLA_RULES), leaseRules = structuredClone(LEASE_RULES), feeRules = structuredClone(FEE_RULES), installRules = structuredClone(INSTALL_RULES), repairRules = structuredClone(REPAIR_RULES) }) {
+  const roots = { A: assumptions, E: eaasRules, D: deliveryRules, S: slaRules, L: leaseRules, F: feeRules, I: installRules, R: repairRules };
   const defs = DEFS.map(([key, label, group, unit, root, path, min, max, note]) => ({ key, label, group, unit, root, path, min, max, note }));
   const byKey = new Map(defs.map((d) => [d.key, d]));
   const defaults = Object.fromEntries(defs.map((d) => [d.key, read(roots[d.root], d.path)]));
@@ -119,6 +132,8 @@ export function createSettingsRegistry({ assumptions, eaasRules, deliveryRules =
     if (!errors.deliveryMinFee && !errors.deliveryMaxFee && values.deliveryMinFee > values.deliveryMaxFee) {
       errors.deliveryMaxFee = 'The highest fee must be at least the lowest.';
     }
+    if (!errors.repairKmNear && !errors.repairKmMid && values.repairKmNear >= values.repairKmMid) errors.repairKmMid = 'This distance must be more than the one before it.';
+    if (!errors.repairKmMid && !errors.repairKmFar && values.repairKmMid >= values.repairKmFar) errors.repairKmFar = 'This distance must be more than the one before it.';
     return errors;
   }
 
@@ -148,4 +163,5 @@ export const settingsRegistry = createSettingsRegistry({
   leaseRules: LEASE_RULES,
   feeRules: FEE_RULES,
   installRules: INSTALL_RULES,
+  repairRules: REPAIR_RULES,
 });

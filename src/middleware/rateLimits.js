@@ -1,11 +1,13 @@
 import rateLimit from 'express-rate-limit';
 
+// Tests that sign up dozens of accounts in one run set RATE_LIMIT_SCALE (for example 20). Leave it unset in production.
+const SCALE = Math.max(1, Number(process.env.RATE_LIMIT_SCALE) || 1);
 const tooMany = (message) => ({ error: { code: 'RATE_LIMITED', message } });
 
 const limiter = (windowMinutes, limit, message) =>
   rateLimit({
     windowMs: windowMinutes * 60 * 1000,
-    limit,
+    limit: limit * SCALE,
     standardHeaders: true,
     legacyHeaders: false,
     message: tooMany(message),

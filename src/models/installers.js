@@ -3,7 +3,7 @@ import { query } from '../db/pool.js';
 export const installersModel = {
   async getProfile(userId) {
     const rows = await query(
-      `SELECT i.user_id, i.years_experience, i.verification_status, i.verification_note, i.quiz_submitted_at, i.verified_at,
+      `SELECT i.user_id, i.years_experience, i.verification_status, i.verification_note, i.quiz_submitted_at, i.verified_at, i.registration_submitted_at, i.flow_version, i.accepts_repairs,
               u.email, u.full_name, u.phone, u.status AS account_status, a.state, a.area_id
        FROM installer_profiles i JOIN users u ON u.id = i.user_id LEFT JOIN addresses a ON a.user_id = u.id WHERE i.user_id = ? LIMIT 1`,
       [userId]
@@ -11,18 +11,24 @@ export const installersModel = {
     return rows[0] ? toProfile(rows[0]) : null;
   },
 
+  // 'pending' = sent for review and waiting; 'draft' = signed up but has not sent the registration yet.
   async listForAdmin({ status } = {}) {
+    const where = status === 'pending' ? "i.verification_status = 'pending' AND i.registration_submitted_at IS NOT NULL"
+      : status === 'draft' ? "i.verification_status = 'pending' AND i.registration_submitted_at IS NULL"
+      : status ? 'i.verification_status = ?' : '1=1';
     const rows = await query(
-      `SELECT i.user_id, i.years_experience, i.verification_status, i.verification_note, i.quiz_submitted_at, i.verified_at,
+      `SELECT i.user_id, i.years_experience, i.verification_status, i.verification_note, i.quiz_submitted_at, i.verified_at, i.registration_submitted_at, i.flow_version, i.accepts_repairs,
               u.email, u.full_name, u.phone, u.status AS account_status, a.state, a.area_id,
               (SELECT q.score FROM installer_quiz_attempts q WHERE q.user_id = i.user_id ORDER BY q.id DESC LIMIT 1) AS score,
-              (SELECT q.total FROM installer_quiz_attempts q WHERE q.user_id = i.user_id ORDER BY q.id DESC LIMIT 1) AS total
+              (SELECT q.total FROM installer_quiz_attempts q WHERE q.user_id = i.user_id ORDER BY q.id DESC LIMIT 1) AS total,
+              (SELECT COUNT(*) FROM installer_references r WHERE r.user_id = i.user_id) AS refs,
+              (SELECT COUNT(*) FROM installer_references r WHERE r.user_id = i.user_id AND r.called_at IS NOT NULL) AS refs_called
        FROM installer_profiles i JOIN users u ON u.id = i.user_id LEFT JOIN addresses a ON a.user_id = u.id
-       ${status ? 'WHERE i.verification_status = ?' : ''}
-       ORDER BY (i.verification_status = 'pending' AND i.quiz_submitted_at IS NOT NULL) DESC, i.created_at DESC LIMIT 200`,
-      status ? [status] : []
+       WHERE ${where}
+       ORDER BY (i.verification_status = 'pending' AND i.registration_submitted_at IS NOT NULL) DESC, i.created_at DESC LIMIT 200`,
+      status && !['pending', 'draft'].includes(status) ? [status] : []
     );
-    return rows.map((r) => ({ ...toProfile(r), score: r.score == null ? null : Number(r.score), total: r.total == null ? null : Number(r.total) }));
+    return rows.map((r) => ({ ...toProfile(r), score: r.score == null ? null : Number(r.score), total: r.total == null ? null : Number(r.total), references: Number(r.refs), referencesCalled: Number(r.refs_called) }));
   },
 
   async setVerification(userId, status, note = null) {
@@ -59,4 +65,5 @@ const toProfile = (r) => ({
   userId: Number(r.user_id), email: r.email, fullName: r.full_name, phone: r.phone, accountStatus: r.account_status,
   state: r.state ?? null, areaId: r.area_id ?? null, yearsExperience: r.years_experience ?? null,
   verification: r.verification_status, note: r.verification_note, quizSubmittedAt: r.quiz_submitted_at, verifiedAt: r.verified_at,
+  registrationSubmittedAt: r.registration_submitted_at ?? null, flowVersion: r.flow_version == null ? 1 : Number(r.flow_version), acceptsRepairs: r.accepts_repairs == null ? true : Boolean(r.accepts_repairs),
 });

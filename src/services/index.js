@@ -11,8 +11,11 @@ import { createMailer } from '../lib/mailer.js';
 import { createPaystack } from '../lib/paystack.js';
 import { articlesModel } from '../models/articles.js';
 import { installationsModel } from '../models/installations.js';
+import { repairsModel } from '../models/repairs.js';
+import { REPAIR_RULES } from '../utils/repairRules.js';
 import { documentsModel } from '../models/documents.js';
 import { installersModel } from '../models/installers.js';
+import { installerRegistrationModel } from '../models/installerRegistration.js';
 import { assessmentsModel } from '../models/assessments.js';
 import { dealsModel } from '../models/deals.js';
 import { deliveryFeesModel } from '../models/deliveryFees.js';
@@ -44,6 +47,7 @@ import { partnersModel } from '../models/partners.js';
 import { createSubscriptionService } from './subscription.service.js';
 import { subscriptionsModel } from '../models/subscriptions.js';
 import { createVerificationService } from './verification.service.js';
+import { createInstallerRegistrationService } from './installerRegistration.service.js';
 import { createBlogService } from './blog.service.js';
 import { createAuditsService } from './audits.service.js';
 import { auditsModel } from '../models/audits.js';
@@ -52,6 +56,7 @@ import { createInterestService } from './interest.service.js';
 import { catalogs } from '../utils/catalog/index.js';
 import { ASSUMPTIONS } from '../utils/pricing.js';
 import { createInstallationsService } from './installations.service.js';
+import { createRepairsService } from './repairs.service.js';
 import { createShopService } from './shop.service.js';
 
 // ---------- shared tools ----------
@@ -142,12 +147,19 @@ export const subscriptionService = createSubscriptionService({
 
 export const partnersService = createPartnersService({ partnersModel });
 
-export const verificationService = createVerificationService({ vendorsModel, installersModel, documentsModel, usersModel, auditModel, cloudinary, notifier });
+export const verificationService = createVerificationService({ vendorsModel, installersModel, installerRegistrationModel, documentsModel, usersModel, auditModel, cloudinary, notifier });
+export const installerRegistrationService = createInstallerRegistrationService({ registrationModel: installerRegistrationModel, documentsModel, usersModel, cloudinary, notifier });
 
 // INSTALL_RULES is the live object the admin's Pricing page edits, so a new price applies to the next quote.
 export const installationsService = createInstallationsService({
   model: installationsModel, paystack, notifier, usersModel, rules: INSTALL_RULES,
   config: { callbackUrl: `${clientUrl}/installation/return` },
+});
+
+// REPAIR_RULES is the live object the admin's Pricing page edits (call-out fees, commission, the waiting times).
+export const repairsService = createRepairsService({
+  model: repairsModel, paystack, notifier, usersModel, cloudinary, rules: REPAIR_RULES,
+  config: { callbackUrl: `${clientUrl}/repair/return` },
 });
 
 // ASSUMPTIONS is the live object the admin's Pricing page edits, so a changed audit rule applies to the next visit.
@@ -172,6 +184,7 @@ export function startHousekeeping() {
     ordersService.housekeeping().catch((err) => console.error('[orders] housekeeping failed:', err.message));
     subscriptionService.housekeeping().catch((err) => console.error('[subscription] housekeeping failed:', err.message));
     installationsService.housekeeping().catch((err) => console.error('[install] housekeeping failed:', err.message));
+    repairsService.housekeeping().catch((err) => console.error('[repairs] housekeeping failed:', err.message));
   };
   const timer = setInterval(tick, env.checkout.housekeepingMinutes * 60 * 1000);
   timer.unref();

@@ -12,6 +12,8 @@ import { adminUploadRouter, vendorUploadRouter, viewRouter } from './images.rout
 import interestRoutes from './interest.routes.js';
 import installerRoutes from './installer.routes.js';
 import installationsRoutes from './installations.routes.js';
+import repairsRoutes from './repairs.routes.js';
+import adminRepairsRoutes from './adminRepairs.routes.js';
 import offersRoutes from './offers.routes.js';
 import ordersRoutes from './orders.routes.js';
 import shopRoutes from './shop.routes.js';
@@ -35,6 +37,7 @@ export function mountRoutes(app) {
   app.use('/api/vendor', vendorRoutes);
   app.use('/api/admin/orders', adminOrdersRoutes);
   app.use('/api/admin/installations', adminInstallationsRoutes);
+  app.use('/api/admin/repairs', adminRepairsRoutes);
   app.use('/api/admin/audits', adminAuditsRoutes);
   app.use('/api/admin/field-agents', adminAgentsRouter);
   app.use('/api/admin/blog', adminBlogRoutes);
@@ -44,6 +47,7 @@ export function mountRoutes(app) {
   app.use('/api/agent', agentRouter);
   app.use('/api/audit-photos', photoRouter);
   app.use('/api/installations', installationsRoutes);
+  app.use('/api/repairs', repairsRoutes);
   app.use('/api/dispatch', dispatchRoutes);
   app.use('/api', ordersRoutes);
   app.use('/api/offers', offersRoutes);

@@ -4,6 +4,7 @@
 process.env.JWT_SECRET ??= 'e2e-secret-e2e-secret-e2e-secret-1234';
 process.env.PAYSTACK_SECRET_KEY = '';
 process.env.NODE_ENV = 'development';
+process.env.RATE_LIMIT_SCALE ??= '20'; // this run signs up far more accounts than one person would in 15 minutes
 process.env.LOGISTICS_EMAIL = 'rider@example.test';
 process.env.ADMIN_NOTIFY_EMAIL = 'admin@example.test';
 
@@ -367,29 +368,125 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal((await company('GET', '/vendor/eaas-rules')).status, 200);
   step('a seller cannot use Energy-as-a-Service; a company can');
 
-  // installers: quiz, no score shown to them, admin decides
+  // installers: registration (details, skills check, two references, optional files), admin checks references, then decides
   const inst = await signUp('installer', 'Ife Installer', `e2e-inst-${stamp}@example.test`);
+  const [iRow] = await query("SELECT id FROM users WHERE email = ? AND role = 'installer'", [`e2e-inst-${stamp}@example.test`]);
+  const reg0 = await inst('GET', '/installer/registration');
+  assert.equal(reg0.status, 200);
+  assert.deepEqual(reg0.body.missing, ['about', 'experience', 'capacity', 'skills', 'references']);
+  assert.equal(reg0.body.canSubmit, false);
+  assert.equal(reg0.body.options.experience.length, 5);
+  assert.equal((await buyer('GET', '/installer/registration')).status, 403, 'only installers see the registration');
+  assert.equal((await client()('GET', '/installer/registration')).status, 401);
+
   const quiz = await inst('GET', '/installer/quiz');
   assert.equal(quiz.status, 200);
   assert.ok(quiz.body.questions.length >= 10);
   assert.ok(!JSON.stringify(quiz.body).includes('"correct"'), 'right answers never reach the installer');
   assert.equal((await inst('POST', '/installer/quiz', { answers: { isolate: 'b' } })).status, 400, 'every question must be answered');
   const answers = Object.fromEntries(quiz.body.questions.map((q) => [q.id, 'b']));
-  const subQ = await inst('POST', '/installer/quiz', { answers, yearsExperience: 4 });
+  const subQ = await inst('POST', '/installer/quiz', { answers });
   assert.equal(subQ.status, 200, JSON.stringify(subQ.body));
   assert.deepEqual(Object.keys(subQ.body), ['submitted']);
   assert.ok(!JSON.stringify((await inst('GET', '/installer/summary')).body).match(/score/i), 'no score shown to the installer');
   assert.equal((await inst('POST', '/installer/quiz', { answers })).status, 409, 'cannot resubmit while waiting');
-  const [iRow] = await query("SELECT id FROM users WHERE email = ? AND role = 'installer'", [`e2e-inst-${stamp}@example.test`]);
+  assert.equal((await inst('GET', '/installer/registration')).body.quizSubmitted, true);
+  assert.equal((await admin('GET', '/admin/installers?status=pending')).body.installers.some((i) => i.userId === Number(iRow.id)), false, 'a half-finished registration is not in the waiting list yet');
+  assert.equal((await admin('GET', '/admin/installers?status=draft')).body.installers.some((i) => i.userId === Number(iRow.id)), true, 'it is listed as not finished');
+  assert.equal(mails.some((m) => m.includes('Installer quiz received') && m.includes('Ife Installer')), false, 'the admin is told when the whole registration is sent, not at the quiz');
+
+  // each step saves on its own; only known fields and valid values are accepted
+  assert.equal((await inst('PUT', '/installer/registration', { capacity: 4 })).status, 400);
+  assert.equal((await inst('PUT', '/installer/registration', { verification: 'verified' })).status, 400, 'an installer cannot write their own approval');
+  assert.equal((await inst('PUT', '/installer/registration', { businessStatus: 'team' })).status, 400, 'there is no individual / team choice');
+  const s1 = await inst('PUT', '/installer/registration', { businessStatus: 'none', travelKm: 25 });
+  assert.equal(s1.status, 200, JSON.stringify(s1.body));
+  assert.deepEqual(s1.body.missing, ['experience', 'capacity', 'references']);
+  await inst('PUT', '/installer/registration', { experienceBand: 'y4_6', qualification: 'training', projectTypes: ['residential', 'maintenance'], about: 'Eight years fitting inverters.' });
+  const s3 = await inst('PUT', '/installer/registration', { capacity: 2, responseTime: '4h' });
+  assert.deepEqual(s3.body.missing, ['references']);
+  assert.equal(s3.body.registration.acceptsRepairs, true, 'repairs are on by default');
+  const [{ years }] = await query('SELECT years_experience AS years FROM installer_profiles WHERE user_id = ?', [iRow.id]);
+  assert.equal(Number(years), 4, 'the experience band keeps the number the old screens use');
+
+  // references
+  const r1 = { name: 'Mr Adebayo', phone: '0803 111 2222', relationship: 'Past client' };
+  const r2 = { name: 'Mrs Okoro', phone: '08033334444', relationship: 'Former employer' };
+  assert.equal((await inst('PUT', '/installer/references', { references: [r1, { ...r2, phone: '08031112222' }] })).status, 400, 'two references cannot share a number');
+  assert.equal((await inst('PUT', '/installer/references', { references: [{ ...r1, phone: '12345' }] })).status, 400);
+  assert.equal((await inst('PUT', '/installer/references', { references: [r1, r2, r1, r2] })).status, 400, 'at most three');
+  assert.equal((await inst('PUT', '/installer/references', { references: [r1] })).status, 200);
+  assert.equal((await inst('POST', '/installer/registration/submit', { declaration: true })).status, 400, 'one reference is not enough');
+  const withRefs = await inst('PUT', '/installer/references', { references: [r1, r2] });
+  assert.equal(withRefs.status, 200);
+  assert.deepEqual(withRefs.body.missing, []);
+  assert.equal(withRefs.body.references[0].phone, '+2348031112222');
+
+  // optional files: private, images only for photos, a limit on each kind
+  const certUp = await inst('POST', '/installer/documents?kind=certificate&label=NABCEP', null, {}, { type: 'application/pdf', data: Buffer.from('%PDF-1.4\n% certificate\n') });
+  assert.equal(certUp.status, 201, JSON.stringify(certUp.body));
+  assert.equal((await inst('POST', '/installer/documents?kind=photo', null, {}, { type: 'application/pdf', data: Buffer.from('%PDF-1.4\n') })).status, 400, 'a profile photo must be a picture');
+  assert.equal((await inst('POST', '/installer/documents?kind=cac', null, {}, { type: 'image/png', data: png })).status, 400, 'only installer file kinds are accepted');
+  const ph1 = await inst('POST', '/installer/documents?kind=photo', null, {}, { type: 'image/png', data: png });
+  const ph2 = await inst('POST', '/installer/documents?kind=photo', null, {}, { type: 'image/png', data: png });
+  assert.equal(ph1.status, 201);
+  assert.equal(ph2.status, 201);
+  assert.equal((await inst('GET', '/installer/registration')).body.documents.filter((d) => d.kind === 'photo').length, 1, 'a new profile photo replaces the old');
+  for (let n = 0; n < 6; n += 1) assert.equal((await inst('POST', '/installer/documents?kind=work', null, {}, { type: 'image/png', data: png })).status, 201);
+  assert.equal((await inst('POST', '/installer/documents?kind=work', null, {}, { type: 'image/png', data: png })).status, 409, 'six work pictures at most');
+  assert.equal((await inst('GET', `/installer/documents/${certUp.body.id}/file`)).status, 200);
+  assert.equal((await client()('GET', `/installer/documents/${certUp.body.id}/file`)).status, 401);
+  assert.equal((await seller('GET', `/installer/documents/${certUp.body.id}/file`)).status, 403, 'a seller is not an installer');
+
+  // sending it
+  assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/verification`, { status: 'verified' })).status, 409, 'cannot approve before the registration is sent');
+  assert.equal((await inst('POST', '/installer/registration/submit', {})).status, 400, 'the declaration must be ticked');
+  const sent = await inst('POST', '/installer/registration/submit', { declaration: true });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.equal(sent.body.submitted, true);
+  assert.equal((await inst('POST', '/installer/registration/submit', { declaration: true })).status, 409, 'cannot send twice while waiting');
+  assert.ok(mails.some((m) => m.includes('Installer quiz received') && m.includes('Ife Installer')), 'the admin is told');
+
+  // the admin reads everything, phones the references, then approves
   const list = await admin('GET', '/admin/installers?status=pending');
-  assert.ok(list.body.installers.some((i) => i.userId === Number(iRow.id) && i.total === quiz.body.questions.length));
+  const row = list.body.installers.find((i) => i.userId === Number(iRow.id));
+  assert.ok(row && row.total === quiz.body.questions.length && row.references === 2 && row.referencesCalled === 0);
   const detail = await admin('GET', `/admin/installers/${iRow.id}`);
   assert.ok(detail.body.quiz.score >= 10 && detail.body.quiz.detail.length === quiz.body.questions.length);
+  assert.equal(detail.body.registration.experience, '4–6 years');
+  assert.deepEqual(detail.body.registration.projectTypes, ['Homes', 'Maintenance and repairs']);
+  assert.equal(detail.body.references.length, 2);
+  assert.equal(detail.body.documents.filter((d) => d.kind === 'work').length, 6);
   assert.equal((await vendor('GET', `/admin/installers/${iRow.id}`)).status, 403);
+  assert.equal((await admin('GET', `/admin/documents/${certUp.body.id}/file`)).status, 200, 'the admin can open the certificate');
+  assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/verification`, { status: 'verified' })).status, 409, 'references must be phoned first');
+  const refIds = detail.body.references.map((r) => r.id);
+  assert.equal((await vendor('PATCH', `/admin/installers/${iRow.id}/references/${refIds[0]}`, { called: true })).status, 403);
+  assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/references/${refIds[0]}`, { called: true, note: 'Confirmed' })).status, 200);
+  assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/verification`, { status: 'verified' })).status, 409, 'one of two is not enough');
+  assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/references/${refIds[1]}`, { called: true })).status, 200);
+  assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/references/999999999`, { called: true })).status, 404);
   assert.equal((await admin('PATCH', `/admin/installers/${iRow.id}/verification`, { status: 'verified' })).status, 200);
   assert.equal((await inst('GET', '/installer/summary')).body.verification, 'verified');
   assert.equal((await buyer('GET', '/installer/quiz')).status, 403);
-  step(`installer answered the quiz (score hidden from them, ${detail.body.quiz.score}/${detail.body.quiz.total} for the admin) and was approved`);
+
+  // after approval: working details can change, who they are cannot
+  assert.equal((await inst('PUT', '/installer/registration', { experienceBand: 'gt10' })).status, 409);
+  assert.equal((await inst('PUT', '/installer/references', { references: [r1, r2] })).status, 409);
+  const toggled = await inst('PUT', '/installer/registration', { acceptsRepairs: false, capacity: 5 });
+  assert.equal(toggled.status, 200);
+  assert.equal((await inst('GET', '/installer/summary')).body.acceptsRepairs, false);
+  assert.equal((await inst('DELETE', `/installer/documents/${certUp.body.id}`)).status, 409, 'an approved certificate stays');
+  const workId = detail.body.documents.find((d) => d.kind === 'work').id;
+  assert.equal((await inst('DELETE', `/installer/documents/${workId}`)).status, 204, 'work pictures can be tidied');
+
+  // installers who joined before this stay on the old rules: no references needed
+  const legacy = await signUp('installer', 'Old Installer', `e2e-inst-old-${stamp}@example.test`);
+  const [lRow] = await query("SELECT id FROM users WHERE email = ? AND role = 'installer'", [`e2e-inst-old-${stamp}@example.test`]);
+  await query('UPDATE installer_profiles SET flow_version = 1, quiz_submitted_at = UTC_TIMESTAMP(), registration_submitted_at = UTC_TIMESTAMP() WHERE user_id = ?', [lRow.id]);
+  assert.equal((await admin('PATCH', `/admin/installers/${lRow.id}/verification`, { status: 'verified' })).status, 200);
+  assert.equal((await legacy('GET', '/installer/summary')).body.verification, 'verified');
+  step(`installer registered in five steps (skills check ${detail.body.quiz.score}/${detail.body.quiz.total} for the admin only), admin phoned both references, approved; older installers unaffected`);
 }
 
 // ---------- installation requests: quote, pay, broadcast, first-accept, finish, confirm, payout ----------
@@ -1050,6 +1147,263 @@ step(`admin stats: ${stats.orders} paid orders, ₦${stats.gmv} sales`);
   assert.equal(tiny.status, 200);
   assert.equal(tiny.body.nothingFits, true);
   step('deals can hold any products and typed-in items with an automatic total; long descriptions save; budget suggestions list deals/items or say how short the budget is');
+}
+
+// ---------- repairs (part A): request, call-out fee by distance, ranked matching, admin approval, technician visit and report ----------
+{
+  const { repairsService } = await import('../src/services/index.js');
+  await query("UPDATE installer_profiles ip JOIN users u ON u.id = ip.user_id SET ip.verification_status = 'pending' WHERE u.email LIKE 'e2e-%@example.test'");
+  const tk = async (name, key, extra = {}, profile = {}) => {
+    const email = `e2e-rep-${key}-${stamp}@example.test`;
+    const api = await signUp('installer', name, email, extra);
+    const [row] = await query("SELECT id FROM users WHERE email = ? AND role = 'installer'", [email]);
+    const p = { status: profile.unverified ? 'pending' : 'verified', km: profile.km ?? 25, cap: profile.cap ?? 5, resp: profile.resp ?? '4h', yrs: profile.yrs ?? 4, repairs: profile.repairs ?? 1 };
+    await query("UPDATE installer_profiles SET verification_status = ?, quiz_submitted_at = UTC_TIMESTAMP(), travel_km = ?, capacity = ?, response_time = ?, years_experience = ?, accepts_repairs = ? WHERE user_id = ?", [p.status, p.km, p.cap, p.resp, p.yrs, p.repairs, row.id]);
+    return { api, id: Number(row.id), email, name };
+  };
+  const T1 = await tk('Near Technician', 'n1', { areaId: 'yaba' }, { yrs: 8, resp: '1h' });
+  const T2 = await tk('Farther Technician', 'n2', { areaId: 'lekki-phase-1' }, { yrs: 2 });
+  const T3 = await tk('Short Range Technician', 'n3', { areaId: 'ikeja' }, { km: 10 });
+  const T4 = await tk('Abuja Technician', 'n4', { state: 'abuja', areaId: 'wuse' });
+  const T5 = await tk('Installs Only', 'n5', { areaId: 'yaba' }, { repairs: 0 });
+  const T6 = await tk('Not Approved', 'n6', { areaId: 'yaba' }, { unverified: true });
+  const cust3 = await signUp('individual', 'Other Repair Customer', `e2e-rcust-${stamp}@example.test`, { areaId: 'surulere' });
+
+  const opts = await client()('GET', '/repairs/options');
+  assert.equal(opts.status, 200);
+  assert.ok(opts.body.faultTypes.length >= 5 && opts.body.fees.bands.length === 4 && opts.body.payNotice.includes('Pay only inside TerraVoltix'));
+
+  const rb = { faultType: 'inverter', description: 'Inverter shows a red light and trips every evening', equipment: ['inverter', 'battery'], urgency: 'urgent', state: 'lagos', areaId: 'yaba', line: '9 Secret Lane, Yaba' };
+  assert.equal((await client()('POST', '/repairs', rb)).status, 401);
+  assert.equal((await vendor('POST', '/repairs', rb)).status, 403, 'a vendor cannot request repairs');
+  assert.equal((await T1.api('POST', '/repairs', rb)).status, 403, 'a technician cannot request repairs');
+  assert.equal((await buyer('POST', '/repairs', { ...rb, description: 'broken' })).status, 400);
+  assert.equal((await buyer('POST', '/repairs', { ...rb, equipment: [] })).status, 400);
+  assert.equal((await buyer('POST', '/repairs', { ...rb, faultType: 'nope' })).status, 400);
+  assert.equal((await buyer('POST', '/repairs', { ...rb, callOutFee: 1 })).status, 400, 'the customer cannot set the fee');
+  const inAbuja = await buyer('POST', '/repairs', { ...rb, state: 'abuja', areaId: 'wuse', line: '3 Test Road, Wuse' });
+  assert.equal(inAbuja.status, 201, 'an Abuja request is priced from the Abuja technician');
+  assert.equal(inAbuja.body.request.callOutFee, 5000);
+  await buyer('POST', `/repairs/${inAbuja.body.request.ref}/cancel`);
+  assert.equal((await buyer('POST', '/repairs', { ...rb, areaId: 'wuse' })).status, 400, 'an area from the wrong state is refused');
+
+  const made = await buyer('POST', '/repairs', rb);
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const R1 = made.body.request.ref;
+  assert.equal(made.body.request.status, 'quote');
+  assert.equal(made.body.request.callOutFee, 5000, 'a technician in the same area: the closest band');
+  assert.equal(made.body.request.feeBand, 'Close by');
+  assert.ok(made.body.request.payNotice.includes('Pay only inside'));
+  assert.equal((await cust3('GET', `/repairs/${R1}`)).status, 404, 'another customer cannot see it');
+  assert.equal((await T1.api('GET', `/installer/repairs/${R1}`)).status, 404, 'a technician cannot see an unpaid request');
+  step('a repair request is priced by distance to the nearest available technician; bad input, fee tampering and other roles are refused');
+
+  // pictures
+  assert.equal((await buyer('POST', `/repairs/${R1}/photos`, null, {}, { type: 'image/png', data: Buffer.from('not a picture at all') })).status, 400);
+  for (let n = 0; n < 4; n += 1) { const up = await buyer('POST', `/repairs/${R1}/photos`, null, {}, { type: 'image/png', data: png }); assert.equal(up.status, 201, JSON.stringify(up.body)); }
+  assert.equal((await buyer('POST', `/repairs/${R1}/photos`, null, {}, { type: 'image/png', data: png })).status, 409, 'four pictures at most');
+  const photoIds = (await buyer('GET', `/repairs/${R1}`)).body.request.photos;
+  assert.equal(photoIds.length, 4);
+  assert.equal((await buyer('GET', `/repairs/${R1}/photos/${photoIds[0]}`)).status, 200);
+  assert.equal((await cust3('GET', `/repairs/${R1}/photos/${photoIds[0]}`)).status, 404, 'pictures are private');
+  assert.equal((await client()('GET', `/repairs/${R1}/photos/${photoIds[0]}`)).status, 401);
+  assert.equal((await buyer('DELETE', `/repairs/${R1}/photos/${photoIds[3]}`)).status, 200, 'a picture can be removed before paying');
+  step('fault pictures: images only, four at most, private to the customer');
+
+  // the admin changes a fee: new quotes use it, the old one is fixed
+  assert.equal((await admin('PUT', '/admin/settings', { changes: { repairFeeNear: 6000 } })).status, 200);
+  const made2 = await buyer('POST', '/repairs', rb);
+  assert.equal(made2.body.request.callOutFee, 6000);
+  assert.equal((await buyer('GET', `/repairs/${R1}`)).body.request.callOutFee, 5000, 'a quote keeps the fee it was given');
+  assert.equal((await admin('PUT', '/admin/settings', { changes: { repairFeeNear: null } })).status, 200);
+  assert.equal((await buyer('POST', `/repairs/${made2.body.request.ref}/cancel`)).status, 200, 'an unpaid request can be cancelled, nothing to refund');
+  step('admin call-out fee change applies to new quotes only');
+
+  // pay: four taps, one payment; six simultaneous confirmations, one opening
+  const taps = await Promise.all([1, 2, 3, 4].map(() => buyer('POST', `/repairs/${R1}/pay`)));
+  assert.ok(taps.every((t) => t.status === 201), JSON.stringify(taps.map((t) => t.body)));
+  assert.equal(new Set(taps.map((t) => t.body.reference)).size, 1);
+  const payRef = taps[0].body.reference;
+  assert.ok(payRef.startsWith('RP-'));
+  assert.equal(taps[0].body.amount, 5000);
+  assert.equal((await cust3('POST', '/repairs/mock-pay', { reference: payRef })).status, 404);
+  const paid = await Promise.all([1, 2, 3, 4, 5, 6].map(() => buyer('POST', '/repairs/mock-pay', { reference: payRef })));
+  assert.ok(paid.every((p) => p.status === 200 && p.body.status === 'paid'), JSON.stringify(paid.map((p) => p.body)));
+  const matches = await query('SELECT m.technician_id, m.rank_no, m.status FROM repair_matches m JOIN repair_requests r ON r.id = m.request_id WHERE r.public_ref = ? ORDER BY m.rank_no', [R1]);
+  assert.deepEqual(matches.map((m) => Number(m.technician_id)), [T1.id, T2.id], 'only approved technicians who take repairs, in the right state and range, ranked nearest/most experienced first');
+  assert.deepEqual(matches.map((m) => m.status), ['recommended', 'queued']);
+  assert.equal(mails.filter((m) => m.includes('Repair') && m.includes(R1) && m.includes('approve')).length, 1, 'the admin was asked once');
+  assert.equal((await buyer('GET', `/repairs/${R1}`)).body.request.status, 'finding');
+  assert.equal((await buyer('POST', `/repairs/${R1}/pay`)).status, 409, 'already paid');
+  assert.deepEqual((await T1.api('GET', '/installer/repairs')).body.offers, [], 'nothing reaches the technician until the admin approves');
+  step('4 taps = 1 payment; 6 simultaneous confirmations opened it once; the ranked list has the 2 right technicians; the admin was asked once');
+
+  // the admin's view and powers
+  assert.equal((await vendor('GET', '/admin/repairs')).status, 403);
+  assert.equal((await buyer('POST', `/admin/repairs/${R1}/approve`)).status, 403);
+  const av = await admin('GET', `/admin/repairs/${R1}`);
+  assert.equal(av.status, 200);
+  assert.equal(av.body.matches.length, 2);
+  assert.ok(av.body.choices.some((c) => c.id === T1.id) && !av.body.choices.some((c) => [T3.id, T4.id, T5.id, T6.id].includes(c.id)));
+  assert.equal((await admin('GET', '/admin/repairs?status=needs_action')).body.requests.some((r) => r.ref === R1), true);
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/decline`)).status, 200, 'declining the recommendation moves to the next one');
+  const afterDecline = await query('SELECT m.technician_id, m.status FROM repair_matches m JOIN repair_requests r ON r.id = m.request_id WHERE r.public_ref = ? ORDER BY m.rank_no', [R1]);
+  assert.deepEqual(afterDecline.map((m) => m.status), ['passed', 'recommended']);
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/approve`)).status, 200);
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/approve`)).status, 409, 'approving twice does nothing');
+  const offerSeen = await T2.api('GET', '/installer/repairs');
+  assert.equal(offerSeen.body.offers.length, 1);
+  const offerText = JSON.stringify(offerSeen.body);
+  assert.ok(!offerText.includes('Secret Lane') && !offerText.includes('+234') && !offerText.includes('"customer"'), 'no address or phone before accepting');
+  assert.ok(offerSeen.body.offers[0].youEarn === 4000 && offerSeen.body.offers[0].fee === 5000, 'the technician sees their share after the commission');
+  assert.deepEqual((await T1.api('GET', '/installer/repairs')).body.offers, [], 'the passed-over technician sees nothing');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/accept`)).status, 404, 'only the offered technician can accept');
+  assert.equal((await T6.api('GET', '/installer/repairs')).status, 403, 'an unapproved technician gets nothing');
+  step('admin declined the first recommendation (next ranked recommended) then approved; only that technician sees the offer, without address or phone');
+
+  // technician declines, list is used up, the admin is told and chooses by hand
+  assert.equal((await T2.api('POST', `/installer/repairs/${R1}/decline`)).status, 200);
+  assert.equal((await T2.api('POST', `/installer/repairs/${R1}/accept`)).status, 404, 'a declined offer cannot be taken back');
+  assert.ok(mails.some((m) => m.includes(`NO TECHNICIAN YET · ${R1}`)), 'the admin is alerted when the ranked list is used up');
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/assign`, { technicianId: T3.id })).status, 200, 'the admin may pick any technician who takes repairs');
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/assign`, { technicianId: T1.id })).status, 200, 'and may change their mind: the job is offered to the new choice');
+  assert.deepEqual((await T3.api('GET', '/installer/repairs')).body.offers, [], 'the earlier choice no longer has the offer');
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/assign`, { technicianId: T6.id })).status, 404, 'an unapproved technician cannot be chosen');
+  const race = await Promise.all([T1.api('POST', `/installer/repairs/${R1}/accept`), T1.api('POST', `/installer/repairs/${R1}/accept`)]);
+  assert.ok(race.every((r) => r.status === 200), 'accepting twice is harmless');
+  const accepted = race.find((r) => r.body.job && !r.body.already);
+  assert.ok(accepted, 'exactly one accept did the work');
+  assert.ok(accepted.body.job.address.includes('Secret Lane') && accepted.body.job.customer.phone.startsWith('+234'), 'the technician gets the address and phone after accepting');
+  assert.equal((await admin('POST', `/admin/repairs/${R1}/assign`, { technicianId: T2.id })).status, 409, 'cannot reassign once accepted');
+  const cv = await buyer('GET', `/repairs/${R1}`);
+  assert.equal(cv.body.request.status, 'assigned');
+  assert.equal(cv.body.request.technician.name, 'Near Technician');
+  assert.ok(!JSON.stringify(cv.body).includes('recommended') && !JSON.stringify(cv.body).includes('score'), 'the customer never sees the matching');
+  assert.ok(mails.some((m) => m.includes(`Technician assigned · ${R1}`)));
+  step('technician declined → list used up → admin alerted and chose by hand; accepting twice is harmless; customer now sees the technician');
+
+  // the visit: on my way → arrived → inspection pictures → report
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/arrived`)).status, 409, 'must set off first');
+  assert.equal((await T2.api('POST', `/installer/repairs/${R1}/on-my-way`)).status, 404, 'only the assigned technician');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/on-my-way`)).status, 200);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/on-my-way`)).status, 200, 'tapping twice is harmless');
+  assert.ok(mails.some((m) => m.includes(`Technician on the way · ${R1}`)));
+  const rep = { findings: 'The inverter control board has failed and one battery cell is weak.', parts: [{ name: 'Inverter control board', qty: 1, unitPrice: 45000 }, { name: 'Fuse 40A', qty: 2, unitPrice: 1500 }], labour: 10000, estimatedHours: 6 };
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/report`, rep)).status, 409, 'cannot report before arriving');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/arrived`)).status, 200);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/photos`, null, {}, { type: 'image/png', data: png })).status, 201);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/photos`, null, {}, { type: 'image/png', data: Buffer.from('nope nope nope') })).status, 400);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/report`, { ...rep, findings: 'broken' })).status, 400);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/report`, { ...rep, estimatedHours: 0 })).status, 400, 'a time estimate is required');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/report`, { ...rep, parts: [{ name: 'Board', qty: 1, unitPrice: -5 }] })).status, 400);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/report`, { ...rep, total: 1 })).status, 400, 'the technician cannot write the total; the system adds it up');
+  assert.equal((await T2.api('POST', `/installer/repairs/${R1}/report`, rep)).status, 404);
+  const sentReport = await T1.api('POST', `/installer/repairs/${R1}/report`, rep);
+  assert.equal(sentReport.status, 200, JSON.stringify(sentReport.body));
+  assert.equal(sentReport.body.report.total, 58000);
+  assert.equal((await T1.api('POST', `/installer/repairs/${R1}/report`, rep)).status, 409, 'one report per visit');
+  const afterReport = await buyer('GET', `/repairs/${R1}`);
+  assert.equal(afterReport.body.request.status, 'inspected');
+  const view = afterReport.body.request.report;
+  assert.equal(view.total, 58000);
+  assert.equal(view.callOutCredit, 5000, 'the call-out fee is credited');
+  assert.equal(view.amountDue, 53000);
+  assert.deepEqual(view.parts.map((p) => p.amount), [45000, 3000]);
+  assert.equal(view.photos.length, 1);
+  assert.ok(afterReport.body.request.timeline.map((t) => t.type).join() === 'requested,paid,accepted,on_the_way,arrived,inspected');
+  assert.equal((await buyer('GET', `/repairs/${R1}/photos/${view.photos[0]}`)).status, 200, 'the customer sees the technician\'s inspection pictures');
+  assert.equal((await buyer('POST', `/repairs/${R1}/cancel`)).status, 409, 'after the visit it can no longer be cancelled here');
+  assert.equal((await buyer('POST', `/repairs/${R1}/photos`, null, {}, { type: 'image/png', data: png })).status, 409);
+  assert.equal((await T1.api('GET', '/installer/repairs/mine')).body.jobs[0].report.youEarn, 46400, 'the technician sees their share of the repair after the one commission');
+  assert.ok(mails.some((m) => m.includes(`Your repair estimate · ${R1}`)));
+  step('on my way → arrived → report: total ₦58,000 is added up by the system, the call-out fee ₦5,000 is credited, customer sees ₦53,000 due, the timeline and the inspection pictures');
+
+  // auto-approval and technician silence use the housekeeping timer
+  const pay = async (api, ref) => {
+    const p = await api('POST', `/repairs/${ref}/pay`);
+    return api('POST', '/repairs/mock-pay', { reference: p.body.reference });
+  };
+  const R2 = (await buyer('POST', '/repairs', { ...rb, urgency: 'normal' })).body.request.ref;
+  assert.equal((await pay(buyer, R2)).status, 200);
+  assert.deepEqual((await T1.api('GET', '/installer/repairs')).body.offers, []);
+  await query("UPDATE repair_matches m JOIN repair_requests r ON r.id = m.request_id SET m.admin_due_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE r.public_ref = ? AND m.status = 'recommended'", [R2]);
+  const h1 = await repairsService.housekeeping();
+  assert.equal(h1.autoApproved >= 1, true, 'the admin did not act in time: the recommendation is approved automatically');
+  assert.equal((await repairsService.housekeeping()).autoApproved, 0, 'and only once');
+  const [first] = await query("SELECT m.technician_id FROM repair_matches m JOIN repair_requests r ON r.id = m.request_id WHERE r.public_ref = ? AND m.status = 'offered'", [R2]);
+  const firstTech = [T1, T2].find((t) => t.id === Number(first.technician_id));
+  assert.equal((await firstTech.api('GET', '/installer/repairs')).body.offers.length, 1);
+  await query("UPDATE repair_matches m JOIN repair_requests r ON r.id = m.request_id SET m.tech_due_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE r.public_ref = ? AND m.status = 'offered'", [R2]);
+  const h2 = await repairsService.housekeeping();
+  assert.equal(h2.lapsed >= 1, true, 'the technician did not answer: the offer moves on');
+  assert.ok(mails.some((m) => m.includes(`Repair ${R2}: technician did not answer`)), 'the admin is told');
+  assert.deepEqual((await firstTech.api('GET', '/installer/repairs')).body.offers, [], 'the silent technician loses the offer');
+  assert.equal((await firstTech.api('POST', `/installer/repairs/${R2}/accept`)).status, 404);
+  const [rec] = await query("SELECT m.technician_id, m.status FROM repair_matches m JOIN repair_requests r ON r.id = m.request_id WHERE r.public_ref = ? AND m.status = 'recommended'", [R2]);
+  assert.ok(rec && Number(rec.technician_id) !== firstTech.id, 'the next-ranked technician is now recommended (admin still decides)');
+  step('no admin action → approved automatically (once); technician silent → offer lapses, admin told, next-ranked recommended');
+
+  // cancelling: full refund before they set off, half after, none once they have arrived
+  assert.equal((await admin('POST', `/admin/repairs/${R2}/cancel`, { reason: 'Customer asked us to stop' })).status, 200);
+  const [c2] = await query('SELECT refund_amount, refund_needed FROM repair_requests WHERE public_ref = ?', [R2]);
+  assert.deepEqual([Number(c2.refund_amount), Number(c2.refund_needed)], [5000, 1], 'an admin cancel refunds the whole call-out fee');
+  assert.ok(mails.some((m) => m.includes(`REFUND NEEDED · ${R2}`)));
+  assert.equal((await admin('POST', `/admin/repairs/${R2}/refunded`)).status, 200);
+  assert.equal((await admin('POST', `/admin/repairs/${R2}/refunded`)).status, 409, 'a refund is recorded once');
+
+  const toAssigned = async () => {
+    const ref = (await buyer('POST', '/repairs', { ...rb, urgency: 'normal' })).body.request.ref;
+    await pay(buyer, ref);
+    assert.equal((await admin('POST', `/admin/repairs/${ref}/assign`, { technicianId: T1.id })).status, 200);
+    assert.equal((await T1.api('POST', `/installer/repairs/${ref}/accept`)).status, 200);
+    return ref;
+  };
+  const R3 = await toAssigned();
+  const x3 = await buyer('POST', `/repairs/${R3}/cancel`);
+  assert.deepEqual([x3.status, x3.body.refund], [200, 5000], 'cancelled before the technician set off: full refund');
+  assert.ok(mails.some((m) => m.includes(`Job cancelled · ${R3}`)), 'the technician is told');
+  assert.equal((await T1.api('POST', `/installer/repairs/${R3}/on-my-way`)).status, 409, 'and cannot set off for a cancelled job');
+  const R4 = await toAssigned();
+  assert.equal((await T1.api('POST', `/installer/repairs/${R4}/on-my-way`)).status, 200);
+  const x4 = await buyer('POST', `/repairs/${R4}/cancel`);
+  assert.deepEqual([x4.status, x4.body.refund], [200, 2500], 'cancelled after the technician set off: half refunded');
+  const R5 = await toAssigned();
+  await T1.api('POST', `/installer/repairs/${R5}/on-my-way`);
+  await T1.api('POST', `/installer/repairs/${R5}/arrived`);
+  assert.equal((await buyer('POST', `/repairs/${R5}/cancel`)).status, 409, 'not once they have arrived');
+  assert.equal((await buyer('GET', '/repairs')).body.requests.filter((r) => r.refund?.pending).length >= 2, true);
+  step('cancelling: unpaid free; before "on my way" full refund; after it half; after arrival refused; refunds are queued once for the admin');
+
+  // capacity: a full technician is not queued, but the admin still sees them
+  await query('UPDATE installer_profiles SET capacity = 1 WHERE user_id = ?', [T1.id]);
+  const R6 = (await buyer('POST', '/repairs', { ...rb, urgency: 'normal' })).body.request.ref;
+  await pay(buyer, R6);
+  const full = await query('SELECT m.technician_id FROM repair_matches m JOIN repair_requests r ON r.id = m.request_id WHERE r.public_ref = ?', [R6]);
+  assert.deepEqual(full.map((m) => Number(m.technician_id)), [T2.id], 'a technician already at capacity is not queued');
+  const choices = (await admin('GET', `/admin/repairs/${R6}`)).body.choices;
+  assert.equal(choices.find((c) => c.id === T1.id)?.atCapacity, true);
+  await query('UPDATE installer_profiles SET capacity = 5 WHERE user_id = ?', [T1.id]);
+  await admin('POST', `/admin/repairs/${R6}/cancel`, { reason: 'Test finished' });
+
+  // nobody in range: the request is refused up front
+  await query("UPDATE installer_profiles ip JOIN users u ON u.id = ip.user_id SET ip.accepts_repairs = 0 WHERE u.email LIKE 'e2e-rep-%@example.test'");
+  const nobody = await buyer('POST', '/repairs', rb);
+  assert.equal(nobody.status, 409);
+  assert.equal(nobody.body.error.code, 'NO_TECHNICIAN', 'with nobody taking repairs the request is refused, not left to hang');
+  await query("UPDATE installer_profiles ip JOIN users u ON u.id = ip.user_id SET ip.accepts_repairs = 1 WHERE u.email LIKE 'e2e-rep-%@example.test'");
+  step('a full technician is not queued but admin still sees them; with no technician available the request is refused up front');
+
+  // a payment for the wrong amount is held, and a late payment on a cancelled request is flagged
+  const R7 = (await buyer('POST', '/repairs', rb)).body.request.ref;
+  const p7 = await buyer('POST', `/repairs/${R7}/pay`);
+  const short = await repairsService.handleResult({ reference: p7.body.reference, status: 'success', amountKobo: 100, currency: 'NGN' });
+  assert.equal(short.mismatch, true);
+  assert.equal((await buyer('GET', `/repairs/${R7}`)).body.request.status, 'awaiting_payment', 'a short payment does not open the request');
+  assert.equal((await buyer('POST', `/repairs/${R7}/cancel`)).status, 200);
+  const late = await repairsService.handleResult({ reference: p7.body.reference, status: 'success', amountKobo: 500000, currency: 'NGN' });
+  assert.equal(late.settled, true);
+  assert.ok(mails.some((m) => m.includes('already paid or cancelled') || m.includes('Refund it')), 'a payment on a cancelled request is flagged for refund');
+  step('wrong-amount repair payments are held; a late payment on a cancelled request is flagged');
 }
 
 server.close();
